@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  active
+  banned
+}
+
+enum ItemType {
+  Whiteboard
+  Document
+}
+
+enum PermissionRole {
+  owner
+  editor
+  viewer
+}
+
+model User {
+  user_id       String    @id @default(uuid())
+  username      String    @unique @db.VarChar(32)
+  email         String    @unique @db.VarChar(128)
+  password_hash String    @db.VarChar(256)
+  status        UserStatus @default(active)
+  created_at    DateTime  @default(now())
+
+  items       CollaborativeItem[] @relation("ItemOwner")
+  permissions Permission[]
+  comments    Comment[]
+}
+
+model CollaborativeItem {
+  item_id      String   @id @default(uuid())
+  type         ItemType
+  owner_id     String
+  title        String   @db.VarChar(256)
+  is_public    Boolean  @default(false)
+  content_data Json?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  owner       User         @relation("ItemOwner", fields: [owner_id], references: [user_id])
+  permissions Permission[] @relation("ItemPermissions")
+  versions    Version[]
+  comments    Comment[]
+}
+
+model Permission {
+  permission_id String         @id @default(uuid())
+  user_id       String
+  item_id       String
+  role          PermissionRole
+
+  user User              @relation(fields: [user_id], references: [user_id])
+  item CollaborativeItem @relation("ItemPermissions", fields: [item_id], references: [item_id], onDelete: Cascade)
+
+  @@unique([user_id, item_id])
+}
+
+model Version {
+  version_id       String   @id @default(uuid())
+  item_id          String
+  content_snapshot Json
+  created_at       DateTime @default(now())
+
+  item CollaborativeItem @relation(fields: [item_id], references: [item_id], onDelete: Cascade)
+}
+
+model Comment {
+  comment_id  String   @id @default(uuid())
+  item_id     String
+  author_id   String
+  content     String   @db.Text
+  position    Json
+  is_resolved Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  item   CollaborativeItem @relation(fields: [item_id], references: [item_id], onDelete: Cascade)
+  author User              @relation(fields: [author_id], references: [user_id])
+}
