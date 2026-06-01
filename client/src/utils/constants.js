@@ -19,9 +19,9 @@ export const SOCKET_EVENTS = {
   USER_JOINED: 'user:joined',
   USER_LEFT: 'user:left',
 
-  // TODO: 由 B 补充白板事件常量
-  // BOARD_DRAW: 'board:draw',
-  // BOARD_CLEAR: 'board:clear',
+  BOARD_DRAW: 'board:draw',
+  BOARD_SYNC: 'board:sync',
+  BOARD_CURSOR: 'board:cursor',
 
   // TODO: 由 C 补充文档事件常量
   // DOC_OPERATION: 'doc:operation',
