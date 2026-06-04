@@ -100,6 +100,7 @@ CollabPlatform/
 │   ├── git-workflow.md             # 分支策略、PR 流程、commit 格式
 │   └── getting-started.md         # 组员上手步骤 + 代码示例
 ├── .gitignore
+├── DESIGN.md                 # UI 风格统一规定（借鉴Notion）
 └── README.md
 ```
 

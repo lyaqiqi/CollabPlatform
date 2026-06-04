@@ -70,11 +70,11 @@ function BoardPage() {
 
   const connectionTag = useMemo(() => {
     if (socketStatus === SocketStatus.CONNECTED || socketStatus === SocketStatus.RECOVERED) {
-      return <Tag color="green">ÒÑÁ¬½Ó</Tag>;
+      return <Tag color="green">å·²è¿æ¥</Tag>;
     }
-    if (socketStatus === SocketStatus.CONNECTING) return <Tag color="blue">Á¬½ÓÖĞ</Tag>;
-    if (socketStatus === SocketStatus.RECONNECTING) return <Tag color="orange">ÖØÁ¬ÖĞ</Tag>;
-    return <Tag>Î´Á¬½Ó</Tag>;
+    if (socketStatus === SocketStatus.CONNECTING) return <Tag color="blue">è¿æ¥ä¸­</Tag>;
+    if (socketStatus === SocketStatus.RECONNECTING) return <Tag color="orange">é‡è¿ä¸­</Tag>;
+    return <Tag>æœªè¿æ¥</Tag>;
   }, [socketStatus]);
 
   const takeSnapshot = useCallback(() => {
@@ -138,9 +138,9 @@ function BoardPage() {
     updateBoard(id, { title, content_data: { canvas: snapshotStr } })
       .then(() => {
         setDirty(false);
-        Toast.success('ÒÑ±£´æ');
+        Toast.success('å·²ä¿å­˜');
       })
-      .catch((e) => Toast.error(e.message || '±£´æÊ§°Ü'));
+      .catch((e) => Toast.error(e.message || 'ä¿å­˜å¤±è´¥'));
   }, [id, title]);
 
   const exportPng = useCallback(() => {
@@ -189,7 +189,7 @@ function BoardPage() {
         setTitle(data.title || '');
       })
       .catch((e) => {
-        Toast.error(e.message || '°×°å¼ÓÔØÊ§°Ü');
+        Toast.error(e.message || 'ç™½æ¿åŠ è½½å¤±è´¥');
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -296,7 +296,7 @@ function BoardPage() {
         canvas.add(circle);
         canvas.setActiveObject(circle);
       } else if (toolRef.current === TOOLS.TEXT) {
-        const text = new fabric.IText('ÎÄ×Ö', {
+        const text = new fabric.IText('æ–‡å­—', {
           left: x,
           top: y,
           fontSize: 20,
@@ -538,28 +538,28 @@ function BoardPage() {
         <Card
           title={
             <Space size={12} wrap>
-              <Typography.Text strong>°×°å</Typography.Text>
+              <Typography.Text strong>ç™½æ¿</Typography.Text>
               {connectionTag}
-              {dirty ? <Tag color="gold">Î´±£´æ</Tag> : <Tag color="default">ÒÑ±£´æ</Tag>}
+              {dirty ? <Tag color="gold">æœªä¿å­˜</Tag> : <Tag color="default">å·²ä¿å­˜</Tag>}
             </Space>
           }
           extra={
             <Space wrap>
               <Button onClick={undo} disabled={historyRef.current.index <= 0}>
-                ³·Ïú
+                æ’¤é”€
               </Button>
               <Button
                 onClick={redo}
                 disabled={historyRef.current.index >= historyRef.current.stack.length - 1}
               >
-                ÖØ×ö
+                é‡åš
               </Button>
               <Button danger onClick={deleteSelected}>
-                É¾³ı
+                åˆ é™¤
               </Button>
-              <Button onClick={exportPng}>µ¼³ö PNG</Button>
+              <Button onClick={exportPng}>å¯¼å‡º PNG</Button>
               <Button type="primary" onClick={saveNow} disabled={!dirty}>
-                ±£´æ
+                ä¿å­˜
               </Button>
             </Space>
           }
@@ -573,7 +573,7 @@ function BoardPage() {
                   setTitle(e.target.value);
                   setDirty(true);
                 }}
-                placeholder="°×°å±êÌâ"
+                placeholder="ç™½æ¿æ ‡é¢˜"
                 style={{ width: 320 }}
               />
               <Tag>id: {id}</Tag>
@@ -581,22 +581,22 @@ function BoardPage() {
 
             <Space wrap>
               <Button type={tool === TOOLS.SELECT ? 'primary' : 'default'} onClick={() => setTool(TOOLS.SELECT)}>
-                Ñ¡Ôñ
+                é€‰æ‹©
               </Button>
               <Button type={tool === TOOLS.PENCIL ? 'primary' : 'default'} onClick={() => setTool(TOOLS.PENCIL)}>
-                »­±Ê
+                ç”»ç¬”
               </Button>
               <Button type={tool === TOOLS.RECT ? 'primary' : 'default'} onClick={() => setTool(TOOLS.RECT)}>
-                ¾ØĞÎ
+                çŸ©å½¢
               </Button>
               <Button type={tool === TOOLS.CIRCLE ? 'primary' : 'default'} onClick={() => setTool(TOOLS.CIRCLE)}>
-                Ô²ĞÎ
+                åœ†å½¢
               </Button>
               <Button type={tool === TOOLS.ARROW ? 'primary' : 'default'} onClick={() => setTool(TOOLS.ARROW)}>
-                ¼ıÍ·
+                ç®­å¤´
               </Button>
               <Button type={tool === TOOLS.TEXT ? 'primary' : 'default'} onClick={() => setTool(TOOLS.TEXT)}>
-                ÎÄ×Ö
+                æ–‡å­—
               </Button>
             </Space>
 
@@ -647,7 +647,7 @@ function BoardPage() {
                     zIndex: 10,
                   }}
                 >
-                  <Typography.Text>¼ÓÔØÖĞ...</Typography.Text>
+                  <Typography.Text>åŠ è½½ä¸­...</Typography.Text>
                 </div>
               ) : null}
             </div>

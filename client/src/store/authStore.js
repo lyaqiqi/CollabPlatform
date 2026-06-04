@@ -5,9 +5,9 @@ const REFRESH_TOKEN_KEY = 'collab_refresh_token';
 const USER_KEY = 'collab_user';
 
 const useAuthStore = create((set) => ({
-  user: null,
-  accessToken: null,
-  refreshToken: null,
+  user: (() => { try { return JSON.parse(localStorage.getItem(USER_KEY)); } catch { return null; } })(),
+  accessToken: localStorage.getItem(TOKEN_KEY),
+  refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY),
 
   /** 登录成功后保存认证信息，token 同步写入 localStorage */
   setAuth: ({ user, accessToken, refreshToken }) => {

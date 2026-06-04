@@ -13,7 +13,7 @@ async function listBoardsController(req, res, next) {
 async function createBoardController(req, res, next) {
   try {
     const board = await boardService.createBoard(req.user.userId, req.body || {});
-    return success(res, board, '创建成功', 201);
+    return success(res, board, '鍒涘缓鎴愬姛', 201);
   } catch (err) {
     next(err);
   }
@@ -31,7 +31,7 @@ async function getBoardController(req, res, next) {
 async function updateBoardController(req, res, next) {
   try {
     const board = await boardService.updateBoard(req.user.userId, req.params.id, req.body || {});
-    return success(res, board, '更新成功');
+    return success(res, board, '鏇存柊鎴愬姛');
   } catch (err) {
     next(err);
   }
@@ -40,7 +40,7 @@ async function updateBoardController(req, res, next) {
 async function deleteBoardController(req, res, next) {
   try {
     const result = await boardService.deleteBoard(req.user.userId, req.params.id);
-    return success(res, result, '删除成功');
+    return success(res, result, '鍒犻櫎鎴愬姛');
   } catch (err) {
     next(err);
   }
