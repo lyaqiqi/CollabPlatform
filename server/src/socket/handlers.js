@@ -1,4 +1,6 @@
+const prisma = require('../config/prisma');
 const docService = require('../services/doc.service');
+const boardService = require('../services/board.service');
 
 /**
  * 为每个连接的 socket 注册基础事件处理器
@@ -21,10 +23,37 @@ function handlers(io, socket, { joinRoom, leaveRoom, broadcastToRoom }) {
     }
   }
 
-  // 加入协作项目房间
+  async function canAccessBoard(itemId) {
+    try {
+      await boardService.assertBoardReadable({ userId: socket.data.userId, itemId });
+      return true;
+    } catch (err) {
+      socket.emit('board:error', {
+        itemId,
+        code: err.code || 40301,
+        message: err.message || '白板权限校验失败',
+      });
+      return false;
+    }
+  }
+
+  // 加入协作项目房间：先查 item 类型，再走对应权限校验
   socket.on('join', async ({ itemId }) => {
     if (!itemId) return;
-    if (!(await canAccessDoc(itemId, 'viewer'))) return;
+    let item;
+    try {
+      item = await prisma.collaborativeItem.findUnique({
+        where: { item_id: itemId },
+        select: { type: true },
+      });
+    } catch { return; }
+    if (!item) return;
+
+    if (item.type === 'Document') {
+      if (!(await canAccessDoc(itemId, 'viewer'))) return;
+    } else if (item.type === 'Whiteboard') {
+      if (!(await canAccessBoard(itemId))) return;
+    }
     joinRoom(socket, itemId);
   });
 
