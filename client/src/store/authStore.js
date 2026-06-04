@@ -1,9 +1,11 @@
-import { create } from 'zustand';
+﻿import { create } from 'zustand';
 
-const TOKEN_KEY = 'collab_access_token';
-const REFRESH_TOKEN_KEY = 'collab_refresh_token';
-const USER_KEY = 'collab_user';
+export const TOKEN_KEY = 'collab_access_token';
+export const REFRESH_TOKEN_KEY = 'collab_refresh_token';
+export const USER_KEY = 'collab_user';
+export const DEBUG_PREVIEW_KEY = 'collab_debug_preview';
 
+<<<<<<< HEAD
 /** 启动时同步读取，避免首屏 ProtectedRoute 抢在 useEffect 之前判未登录 */
 function readAuthFromStorage() {
   const accessToken = localStorage.getItem(TOKEN_KEY);
@@ -25,8 +27,24 @@ const useAuthStore = create((set) => ({
   user: (() => { try { return JSON.parse(localStorage.getItem(USER_KEY)); } catch { return null; } })(),
   accessToken: localStorage.getItem(TOKEN_KEY),
   refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY),
+=======
+export function isDebugPreviewEnabled() {
+  return localStorage.getItem(DEBUG_PREVIEW_KEY) === 'true';
+}
 
-  /** 登录成功后保存认证信息，token 同步写入 localStorage */
+function clearStorage() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(DEBUG_PREVIEW_KEY);
+}
+
+const useAuthStore = create((set, get) => ({
+  user: null,
+  accessToken: null,
+  refreshToken: null,
+>>>>>>> feature/user
+
   setAuth: ({ user, accessToken, refreshToken }) => {
     localStorage.setItem(TOKEN_KEY, accessToken);
     localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
@@ -34,17 +52,49 @@ const useAuthStore = create((set) => ({
     set({ user, accessToken, refreshToken });
   },
 
-  /** 退出登录，清空 state 和 localStorage */
-  logout: () => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(REFRESH_TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
+  setAccessToken: (accessToken) => {
+    if (accessToken) {
+      localStorage.setItem(TOKEN_KEY, accessToken);
+    }
+    set({ accessToken });
+  },
+
+  setUser: (user) => {
+    if (user) {
+      localStorage.setItem(USER_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(USER_KEY);
+    }
+    set({ user });
+  },
+
+  clearAuth: () => {
+    clearStorage();
     set({ user: null, accessToken: null, refreshToken: null });
   },
 
-  /** 应用启动时从 localStorage 恢复登录态（与初始同步读取保持一致） */
+  logout: () => {
+    get().clearAuth();
+  },
+
   loadFromStorage: () => {
-    set(readAuthFromStorage());
+    const accessToken = localStorage.getItem(TOKEN_KEY);
+    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+    const userStr = localStorage.getItem(USER_KEY);
+
+    if (!accessToken || !refreshToken || !userStr) {
+      clearStorage();
+      set({ user: null, accessToken: null, refreshToken: null });
+      return;
+    }
+
+    try {
+      const user = JSON.parse(userStr);
+      set({ user, accessToken, refreshToken });
+    } catch {
+      clearStorage();
+      set({ user: null, accessToken: null, refreshToken: null });
+    }
   },
 }));
 
