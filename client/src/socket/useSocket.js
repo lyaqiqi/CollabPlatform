@@ -63,7 +63,7 @@ export function useSocket() {
     };
   }, [updateStatus]);
 
-  /** 建立连接（幂等，已连接则跳过） */
+  /** 建立连接（幂等：已有实例时不重复创建） */
   const connect = useCallback(() => {
     const token = localStorage.getItem('collab_access_token');
     if (!token) {
@@ -71,7 +71,8 @@ export function useSocket() {
       return;
     }
 
-    if (socketInstance?.connected) return;
+    // 关键：连接中/已连接都直接复用，避免重复 new io() 造成连接风暴
+    if (socketInstance) return;
 
     socketInstance = io(WS_URL, {
       auth: { token },
@@ -165,6 +166,7 @@ export function useSocket() {
 
   return {
     status,
+    initialized: Boolean(socketInstance),
     connected: status === SocketStatus.CONNECTED || status === SocketStatus.RECOVERED,
     connect,
     disconnect,
