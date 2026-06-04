@@ -1,0 +1,66 @@
+/* ============================================================
+   CollabPlatform · 文档编辑器设计 Token
+   对标飞书文档的视觉语言，所有组件统一引用这些变量
+   ============================================================ */
+:root {
+  /* ---------- 中性色阶（飞书冷灰系） ---------- */
+  --doc-bg: #f7f8fa;
+  --doc-paper: #ffffff;
+  --doc-text: #1f2329;
+  --doc-text-2: #646a73;
+  --doc-text-3: #8f959e;
+  --doc-text-4: #bbbfc4;
+  --doc-border: #dee0e3;
+  --doc-border-light: #eef0f2;
+  --doc-hover: #f2f3f5;
+  --doc-active: #e8f1ff;
+  --doc-active-text: #3370ff;
+
+  /* ---------- 主色 ---------- */
+  --doc-brand: #3370ff;
+  --doc-brand-hover: #2860e8;
+  --doc-brand-light: rgba(51, 112, 255, 0.12);
+
+  /* ---------- 功能色 ---------- */
+  --doc-success: #2ea121;
+  --doc-warning: #f5a623;
+  --doc-danger: #f54a45;
+  --doc-comment-anchor: rgba(255, 188, 54, 0.35);
+  --doc-comment-anchor-active: rgba(245, 74, 69, 0.2);
+
+  /* ---------- 阴影 ---------- */
+  --doc-shadow-xs: 0 1px 3px rgba(31, 35, 41, 0.08);
+  --doc-shadow-sm: 0 2px 8px rgba(31, 35, 41, 0.10);
+  --doc-shadow-md: 0 4px 16px rgba(31, 35, 41, 0.12);
+  --doc-shadow-pop: 0 8px 28px rgba(31, 35, 41, 0.16);
+
+  /* ---------- 圆角 ---------- */
+  --doc-radius-xs: 3px;
+  --doc-radius-sm: 6px;
+  --doc-radius: 8px;
+  --doc-radius-lg: 12px;
+  --doc-radius-xl: 16px;
+
+  /* ---------- 间距 ---------- */
+  --doc-gap-xs: 4px;
+  --doc-gap-sm: 6px;
+  --doc-gap: 8px;
+  --doc-gap-md: 12px;
+  --doc-gap-lg: 16px;
+  --doc-gap-xl: 24px;
+
+  /* ---------- 布局尺寸 ---------- */
+  --doc-header-h: 56px;
+  --doc-left-w: 260px;
+  --doc-right-w: 380px;
+  --doc-content-max: 960px;
+
+  /* ---------- 动画 ---------- */
+  --doc-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --doc-transition: 0.22s var(--doc-ease);
+  --doc-transition-fast: 0.12s var(--doc-ease);
+
+  /* ---------- 字体 ---------- */
+  --doc-font: -apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+  --doc-font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+}

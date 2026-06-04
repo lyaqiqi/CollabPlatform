@@ -23,7 +23,10 @@ export const SOCKET_EVENTS = {
   BOARD_SYNC: 'board:sync',
   BOARD_CURSOR: 'board:cursor',
 
-  // TODO: 由 C 补充文档事件常量
-  // DOC_OPERATION: 'doc:operation',
-  // DOC_CURSOR: 'doc:cursor',
+  // 文档协作（C）
+  DOC_OPERATION: 'doc:operation',
+  DOC_CURSOR: 'doc:cursor',
+  DOC_TITLE_CHANGED: 'doc:title-changed',     // 标题被其他用户修改
+  DOC_SIDEBAR_CHANGED: 'doc:sidebar-changed', // 评论/版本有新变更，通知刷新侧边栏
+  DOC_VERSION_RESTORED: 'doc:version-restored', // 某用户执行了版本恢复，需全员 reload
 };

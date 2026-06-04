@@ -36,7 +36,7 @@ function initSocket(httpServer) {
   io.on('connection', (socket) => {
     console.log(`[socket] 用户 ${socket.data.userId} 已连接，socketId: ${socket.id}`);
 
-    handlers(io, socket, { joinRoom, leaveRoom });
+    handlers(io, socket, { joinRoom, leaveRoom, broadcastToRoom });
 
     socket.on('disconnect', (reason) => {
       console.log(`[socket] 用户 ${socket.data.userId} 断开连接，原因: ${reason}`);

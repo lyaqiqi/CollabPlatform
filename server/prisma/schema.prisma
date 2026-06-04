@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum UserStatus {
@@ -80,8 +81,11 @@ model Comment {
   content     String   @db.Text
   position    Json
   is_resolved Boolean  @default(false)
+  parent_id   String?
   created_at  DateTime @default(now())
 
-  item   CollaborativeItem @relation(fields: [item_id], references: [item_id], onDelete: Cascade)
-  author User              @relation(fields: [author_id], references: [user_id])
+  item    CollaborativeItem @relation(fields: [item_id], references: [item_id], onDelete: Cascade)
+  author  User              @relation(fields: [author_id], references: [user_id])
+  parent  Comment?          @relation("CommentReplies", fields: [parent_id], references: [comment_id], onDelete: Cascade)
+  replies Comment[]         @relation("CommentReplies")
 }

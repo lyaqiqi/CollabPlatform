@@ -1,0 +1,356 @@
+/* ============================================================
+   CollabPlatform · 正文编辑器排版
+   无边界沉浸式画布，对标飞书文档正文区
+   ============================================================ */
+
+/* ---------- 编辑器容器 — 透明、无边界 ---------- */
+.doc-editor {
+  flex: 1;
+  /* 白纸由 doc-shell__center 提供，编辑器容器本身透明无样式 */
+  background: transparent;
+}
+
+/* ---------- 正文内容区 ---------- */
+.doc-editor__content {
+  outline: none;
+  /* 最小高度确保空文档也能点击到编辑区 */
+  min-height: 480px;
+  font-size: 15px;
+  line-height: 1.85;
+  color: var(--doc-text);
+  font-family: var(--doc-font);
+  word-break: break-word;
+  padding: 0;
+  /* 让光标和文字颜色精确 */
+  caret-color: var(--doc-brand);
+}
+
+/* ---------- 标题 ---------- */
+.doc-editor__content h1 {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--doc-text);
+  margin: 28px 0 12px;
+  letter-spacing: -0.02em;
+}
+
+.doc-editor__content h2 {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--doc-text);
+  margin: 24px 0 10px;
+}
+
+.doc-editor__content h3 {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--doc-text);
+  margin: 20px 0 8px;
+}
+
+/* ---------- 段落 ---------- */
+.doc-editor__content p {
+  margin: 0 0 0.6em;
+}
+
+.doc-editor__content p:last-child {
+  margin-bottom: 0;
+}
+
+/* ---------- 粗体 / 斜体 ---------- */
+.doc-editor__content strong {
+  font-weight: 600;
+  color: var(--doc-text);
+}
+
+.doc-editor__content em {
+  font-style: italic;
+}
+
+/* ---------- 删除线 ---------- */
+.doc-editor__content s {
+  color: var(--doc-text-2);
+}
+
+/* ---------- 行内代码 ---------- */
+.doc-editor__content code {
+  font-family: var(--doc-font-mono);
+  font-size: 13px;
+  background: #f0f1f3;
+  color: #d63200;
+  padding: 1px 5px;
+  border-radius: var(--doc-radius-xs);
+  border: 1px solid var(--doc-border-light);
+}
+
+/* ---------- 代码块 ---------- */
+.doc-editor__content pre {
+  background: #1f2329;
+  border-radius: var(--doc-radius);
+  padding: 16px 20px;
+  overflow-x: auto;
+  margin: 16px 0;
+}
+
+.doc-editor__content pre code {
+  font-family: var(--doc-font-mono);
+  font-size: 13.5px;
+  background: none;
+  color: #abb2bf;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  line-height: 1.7;
+}
+
+/* ---------- 引用 ---------- */
+.doc-editor__content blockquote {
+  border-left: 3px solid var(--doc-brand);
+  background: #f7f9ff;
+  margin: 12px 0;
+  padding: 10px 16px;
+  border-radius: 0 var(--doc-radius-sm) var(--doc-radius-sm) 0;
+  color: var(--doc-text-2);
+}
+
+/* ---------- 列表 ---------- */
+.doc-editor__content ul,
+.doc-editor__content ol {
+  padding-left: 22px;
+  margin: 8px 0;
+}
+
+.doc-editor__content li {
+  margin: 3px 0;
+  line-height: 1.75;
+}
+
+/* ---------- 分割线 ---------- */
+.doc-editor__content hr {
+  border: none;
+  border-top: 1px solid var(--doc-border);
+  margin: 20px 0;
+}
+
+/* ---------- 链接 ---------- */
+.doc-editor__content a {
+  color: var(--doc-brand);
+  text-decoration: none;
+  border-bottom: 1px solid var(--doc-brand-light);
+  transition: border-color var(--doc-transition-fast);
+}
+
+.doc-editor__content a:hover {
+  border-color: var(--doc-brand);
+}
+
+/* ---------- 高亮 (Highlight Extension) ---------- */
+.doc-editor__content mark {
+  background: rgba(255, 211, 61, 0.4);
+  color: inherit;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
+/* ---------- 评论锚点装饰 ---------- */
+.doc-editor__content .doc-comment-anchor {
+  background: var(--doc-comment-anchor);
+  border-bottom: 1.5px solid rgba(245, 166, 35, 0.7);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background var(--doc-transition-fast);
+}
+
+.doc-editor__content .doc-comment-anchor:hover {
+  background: rgba(255, 188, 54, 0.5);
+}
+
+.doc-editor__content .doc-comment-anchor--active {
+  background: var(--doc-comment-anchor-active);
+  border-bottom-color: var(--doc-danger);
+}
+
+/* ---------- 协作光标 ---------- */
+.collaboration-cursor__caret {
+  border-left: 2px solid;
+  margin-left: -1px;
+  margin-right: -1px;
+  pointer-events: none;
+  position: relative;
+  word-break: normal;
+}
+
+.collaboration-cursor__label {
+  border-radius: var(--doc-radius-xs) var(--doc-radius-xs) var(--doc-radius-xs) 0;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  left: -1px;
+  line-height: 1.2;
+  padding: 2px 6px;
+  position: absolute;
+  top: -1.5em;
+  user-select: none;
+  white-space: nowrap;
+  font-family: var(--doc-font);
+  box-shadow: var(--doc-shadow-xs);
+}
+
+/* ---------- 占位符（TipTap Placeholder Extension） ---------- */
+.doc-editor__content .is-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--doc-text-4);
+  pointer-events: none;
+  height: 0;
+  font-style: normal;
+}
+
+/* 编辑区整体为空时的大占位符 */
+.doc-editor__content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--doc-text-4);
+  pointer-events: none;
+  height: 0;
+}
+
+/* ---------- 待办事项（TaskList）---------- */
+.doc-editor__content ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 4px;
+}
+
+.doc-editor__content ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.doc-editor__content ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.doc-editor__content ul[data-type="taskList"] li > label input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--doc-brand);
+  cursor: pointer;
+}
+
+.doc-editor__content ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: var(--doc-text-3);
+  text-decoration: line-through;
+}
+
+/* ---------- 表格 ---------- */
+.doc-editor__content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 16px 0;
+  font-size: 14px;
+  table-layout: fixed;
+  overflow: hidden;
+  border-radius: var(--doc-radius);
+}
+
+.doc-editor__content table th,
+.doc-editor__content table td {
+  border: 1px solid var(--doc-border);
+  padding: 8px 12px;
+  min-width: 60px;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.doc-editor__content table th {
+  background: #f5f6f8;
+  font-weight: 600;
+  color: var(--doc-text);
+  text-align: left;
+}
+
+.doc-editor__content table tr:nth-child(even) td {
+  background: #fafafa;
+}
+
+.doc-editor__content table .selectedCell::after {
+  background: rgba(51, 112, 255, 0.12);
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 0; bottom: 0;
+  pointer-events: none;
+}
+
+.doc-editor__content .tableWrapper {
+  overflow-x: auto;
+  margin: 16px 0;
+}
+
+/* ---------- 图片 ---------- */
+.doc-editor__content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--doc-radius);
+  display: block;
+  margin: 12px 0;
+  box-shadow: var(--doc-shadow-xs);
+}
+
+.doc-editor__content img.ProseMirror-selectednode {
+  outline: 2px solid var(--doc-brand);
+  outline-offset: 2px;
+}
+
+/* ---------- 链接 ---------- */
+.doc-editor__content a {
+  color: var(--doc-brand);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(51, 112, 255, 0.35);
+  transition: border-color var(--doc-transition-fast);
+  cursor: pointer;
+}
+
+.doc-editor__content a:hover {
+  border-color: var(--doc-brand);
+}
+
+/* ---------- 代码块语法高亮覆盖（Lowlight / atom-one-dark 风格）---------- */
+.doc-editor__content pre .hljs-comment,
+.doc-editor__content pre .hljs-quote      { color: #5c6370; font-style: italic; }
+.doc-editor__content pre .hljs-doctag,
+.doc-editor__content pre .hljs-keyword,
+.doc-editor__content pre .hljs-formula    { color: #c678dd; }
+.doc-editor__content pre .hljs-section,
+.doc-editor__content pre .hljs-name,
+.doc-editor__content pre .hljs-selector-tag,
+.doc-editor__content pre .hljs-deletion,
+.doc-editor__content pre .hljs-subst      { color: #e06c75; }
+.doc-editor__content pre .hljs-literal    { color: #56b6c2; }
+.doc-editor__content pre .hljs-string,
+.doc-editor__content pre .hljs-regexp,
+.doc-editor__content pre .hljs-addition,
+.doc-editor__content pre .hljs-attribute,
+.doc-editor__content pre .hljs-meta-string { color: #98c379; }
+.doc-editor__content pre .hljs-built_in,
+.doc-editor__content pre .hljs-class .hljs-title { color: #e6c07b; }
+.doc-editor__content pre .hljs-attr,
+.doc-editor__content pre .hljs-variable,
+.doc-editor__content pre .hljs-template-variable,
+.doc-editor__content pre .hljs-type,
+.doc-editor__content pre .hljs-selector-class,
+.doc-editor__content pre .hljs-selector-attr,
+.doc-editor__content pre .hljs-selector-pseudo,
+.doc-editor__content pre .hljs-number     { color: #d19a66; }
+.doc-editor__content pre .hljs-symbol,
+.doc-editor__content pre .hljs-bullet,
+.doc-editor__content pre .hljs-link,
+.doc-editor__content pre .hljs-meta,
+.doc-editor__content pre .hljs-selector-id,
+.doc-editor__content pre .hljs-title      { color: #61aeee; }
+.doc-editor__content pre .hljs-emphasis   { font-style: italic; }
+.doc-editor__content pre .hljs-strong     { font-weight: bold; }
