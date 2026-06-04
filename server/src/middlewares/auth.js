@@ -1,4 +1,4 @@
-const { verifyToken } = require('../utils/jwt');
+﻿const { verifyToken } = require('../utils/jwt');
 const { fail } = require('../utils/response');
 const AppError = require('../utils/AppError');
 
@@ -14,7 +14,7 @@ function authMiddleware(req, res, next) {
 
   const token = authHeader.slice(7);
   try {
-    const payload = verifyToken(token);
+    const payload = verifyToken(token, 'access');
     req.user = { userId: payload.userId };
     next();
   } catch (err) {

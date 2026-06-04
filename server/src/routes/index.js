@@ -1,19 +1,16 @@
-const express = require('express');
+ï»¿const express = require('express');
 const authRoutes = require('./auth.routes');
 const healthRoutes = require('./health.routes');
 const boardRoutes = require('./boards.routes');
+const itemRoutes = require('./items.routes');
 
 const router = express.Router();
 
-// ÈÏÖ¤Ïà¹ØÂ·ÓÉ
 router.use('/auth', authRoutes);
-
-// ½¡¿µ¼ì²é + ÓÃ»§ĞÅÏ¢Â·ÓÉ
 router.use('/', healthRoutes);
-
 router.use('/boards', boardRoutes);
-// TODO: ÓÉ C ÊµÏÖÎÄµµÒµÎñÂ·ÓÉ router.use('/docs', ...)
-// TODO: ÓÉ D ÊµÏÖÓÃ»§/ÏîÄ¿¹ÜÀíÂ·ÓÉ router.use('/items', ...)
-// TODO: ÓÉ E ÊµÏÖ°æ±¾/ÆÀÂÛÂ·ÓÉ router.use('/versions', ...) / router.use('/comments', ...)
+router.use('/items', itemRoutes);
+// TODO: ç”± C å®ç°æ–‡æ¡£ä¸šåŠ¡è·¯ç”± router.use('/docs', ...)
+// TODO: ç”± E å®ç°ç‰ˆæœ¬/è¯„è®ºè·¯ç”± router.use('/versions', ...) / router.use('/comments', ...)
 
 module.exports = router;
