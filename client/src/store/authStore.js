@@ -1,19 +1,20 @@
-﻿import { create } from 'zustand';
+import { create } from 'zustand';
 
 export const TOKEN_KEY = 'collab_access_token';
 export const REFRESH_TOKEN_KEY = 'collab_refresh_token';
 export const USER_KEY = 'collab_user';
 export const DEBUG_PREVIEW_KEY = 'collab_debug_preview';
 
-<<<<<<< HEAD
 /** 启动时同步读取，避免首屏 ProtectedRoute 抢在 useEffect 之前判未登录 */
 function readAuthFromStorage() {
   const accessToken = localStorage.getItem(TOKEN_KEY);
   const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
   const userStr = localStorage.getItem(USER_KEY);
+
   if (!accessToken || !userStr) {
     return { user: null, accessToken: null, refreshToken: null };
   }
+
   try {
     const user = JSON.parse(userStr);
     return { user, accessToken, refreshToken };
@@ -23,11 +24,6 @@ function readAuthFromStorage() {
   }
 }
 
-const useAuthStore = create((set) => ({
-  user: (() => { try { return JSON.parse(localStorage.getItem(USER_KEY)); } catch { return null; } })(),
-  accessToken: localStorage.getItem(TOKEN_KEY),
-  refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY),
-=======
 export function isDebugPreviewEnabled() {
   return localStorage.getItem(DEBUG_PREVIEW_KEY) === 'true';
 }
@@ -39,11 +35,12 @@ function clearStorage() {
   localStorage.removeItem(DEBUG_PREVIEW_KEY);
 }
 
+const initialAuthState = readAuthFromStorage();
+
 const useAuthStore = create((set, get) => ({
-  user: null,
-  accessToken: null,
-  refreshToken: null,
->>>>>>> feature/user
+  user: initialAuthState.user,
+  accessToken: initialAuthState.accessToken,
+  refreshToken: initialAuthState.refreshToken,
 
   setAuth: ({ user, accessToken, refreshToken }) => {
     localStorage.setItem(TOKEN_KEY, accessToken);
