@@ -16,6 +16,8 @@ router.use('/', healthRoutes);
 // 文档模块（C）
 router.use('/docs', docRoutes);
 
+// 白板模块（B）
+// 白板模块（B）
 router.use('/boards', boardRoutes);
 
 // 用户/项目管理路由（D）
