@@ -1,22 +1,36 @@
 import { RouterProvider } from 'react-router-dom';
-import { Alert } from 'antd';
-import { useEffect } from 'react';
+import { Alert, Button } from 'antd';
+import { useEffect, useState } from 'react';
 import router from './router/index';
 import useAuthStore from './store/authStore';
 import { useSocket, SocketStatus } from './socket/useSocket';
 
-/**
- * 全局连接状态提示条
- */
 function ConnectionBanner() {
-  const { status, initialized } = useSocket();
+  const { status, initialized, connect } = useSocket();
   const accessToken = useAuthStore((s) => s.accessToken);
+  const [showRecovered, setShowRecovered] = useState(false);
 
-  // 未登录时不显示连接状态（socket 本就没有连接）
-  if (!accessToken) return null;
+  useEffect(() => {
+    if (status === SocketStatus.DISCONNECTED && accessToken) {
+      const timer = setTimeout(() => {
+        console.log('[socket] 断线后自动重试连接');
+        connect();
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [status, accessToken, connect]);
 
-  // 尚未建立过 socket 实例时，不应提示“已断开”（避免误报）
-  if (!initialized) return null;
+  useEffect(() => {
+    if (status === SocketStatus.RECOVERED) {
+      setShowRecovered(true);
+      const timer = setTimeout(() => {
+        setShowRecovered(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [status]);
+
+  if (!accessToken || !initialized) return null;
 
   if (status === SocketStatus.DISCONNECTED) {
     return (
@@ -25,10 +39,16 @@ function ConnectionBanner() {
         type="warning"
         showIcon
         banner
+        action={
+          <Button type="link" onClick={connect}>
+            立即重试
+          </Button>
+        }
         style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999 }}
       />
     );
   }
+
   if (status === SocketStatus.RECONNECTING) {
     return (
       <Alert
@@ -40,7 +60,8 @@ function ConnectionBanner() {
       />
     );
   }
-  if (status === SocketStatus.RECOVERED) {
+
+  if (status === SocketStatus.RECOVERED && showRecovered) {
     return (
       <Alert
         message="连接已恢复"
@@ -51,13 +72,13 @@ function ConnectionBanner() {
       />
     );
   }
+
   return null;
 }
 
 function App() {
   const loadFromStorage = useAuthStore((s) => s.loadFromStorage);
 
-  // 启动时恢复登录态
   useEffect(() => {
     loadFromStorage();
   }, [loadFromStorage]);

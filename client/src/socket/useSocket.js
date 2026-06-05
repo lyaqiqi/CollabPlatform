@@ -36,8 +36,14 @@ export function useSocket() {
   // 用 ref 保存 socket，避免 re-render 时引用变化
   const socketRef = useRef(socketInstance);
 
+  const recoverHandlerRef = useRef(null);
+
   const updateStatus = useCallback((newStatus) => {
     setStatus(newStatus);
+  }, []);
+
+  const setOnRecovered = useCallback((handler) => {
+    recoverHandlerRef.current = handler;
   }, []);
 
   // 注册/注销连接状态监听（每次 hook 实例化时挂到共享 socket）
@@ -47,19 +53,26 @@ export function useSocket() {
 
     const onConnect = () => updateStatus(SocketStatus.CONNECTED);
     const onDisconnect = () => updateStatus(SocketStatus.DISCONNECTED);
+
     const onReconnectAttempt = () => updateStatus(SocketStatus.RECONNECTING);
-    const onReconnect = () => updateStatus(SocketStatus.RECOVERED);
+    const onReconnect = () => {
+      updateStatus(SocketStatus.RECOVERED);
+      if (recoverHandlerRef.current) {
+        recoverHandlerRef.current();
+      }
+    };
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
-    socket.io.on('reconnect_attempt', onReconnectAttempt);
-    socket.io.on('reconnect', onReconnect);
+
+    socket.on('reconnect_attempt', onReconnectAttempt);
+    socket.on('reconnect', onReconnect);
 
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
-      socket.io.off('reconnect_attempt', onReconnectAttempt);
-      socket.io.off('reconnect', onReconnect);
+      socket.off('reconnect_attempt', onReconnectAttempt);
+      socket.off('reconnect', onReconnect);
     };
   }, [updateStatus]);
 
@@ -166,6 +179,7 @@ export function useSocket() {
 
   return {
     status,
+    connectionState: status,
     initialized: Boolean(socketInstance),
     connected: status === SocketStatus.CONNECTED || status === SocketStatus.RECOVERED,
     connect,
@@ -176,6 +190,7 @@ export function useSocket() {
     joinRoom,
     leaveRoom,
     ping,
+    setOnRecovered,
   };
 }
 
