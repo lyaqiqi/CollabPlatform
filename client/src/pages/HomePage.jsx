@@ -22,7 +22,7 @@ import Navbar from '../components/Navbar';
 import Loading from '../components/Loading';
 import Toast from '../components/Toast';
 import { getMe } from '../api/auth.api';
-import { createItem, getItemDetail, listItems, updateItemPermissions } from '../api/item.api';
+import { createItem, getItemDetail, listItems, updateItemPermissions, updateItemTitle, deleteItem } from '../api/item.api';
 import useAuthStore, { isDebugPreviewEnabled } from '../store/authStore';
 
 const { Content } = Layout;
@@ -119,6 +119,9 @@ function HomePage() {
   const [selectedItem, setSelectedItem] = useState(null);
   const [selectedItemDetail, setSelectedItemDetail] = useState(null);
   const [mockItemDetails, setMockItemDetails] = useState(INITIAL_MOCK_ITEM_DETAILS);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState(null);
+  const [renameForm] = Form.useForm();
   const [createForm] = Form.useForm();
   const [memberForm] = Form.useForm();
   const setUser = useAuthStore((s) => s.setUser);
@@ -292,6 +295,43 @@ function HomePage() {
     }
   }
 
+  async function handleRename(item) {
+    setRenameTarget(item);
+    renameForm.setFieldsValue({ title: item.title });
+    setRenameOpen(true);
+  }
+
+  async function handleRenameFinish() {
+    const { title } = await renameForm.validateFields();
+    try {
+      await updateItemTitle(renameTarget.item_id, title);
+      Toast.success('项目重命名成功');
+      setRenameOpen(false);
+      await loadDashboard();
+    } catch (err) {
+      Toast.error('重命名失败');
+    }
+  }
+
+  async function handleDelete(item) {
+    Modal.confirm({
+      title: '确认删除项目',
+      content: `确定要删除「${item.title}」吗？此操作不可恢复。`,
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await deleteItem(item.item_id);
+          Toast.success('项目删除成功');
+          await loadDashboard();
+        } catch (err) {
+          Toast.error('删除失败');
+        }
+      },
+    });
+  }
+
   if (loading) {
     return <Loading />;
   }
@@ -407,7 +447,11 @@ function HomePage() {
                               进入项目
                             </Button>
                             {item.role === 'owner' ? (
-                              <Button onClick={() => openMemberModal(item)}>管理成员</Button>
+                              <>
+                                <Button onClick={() => openMemberModal(item)}>管理成员</Button>
+                                <Button onClick={() => handleRename(item)}>重命名</Button>
+                                <Button danger onClick={() => handleDelete(item)}>删除</Button>
+                              </>
                             ) : null}
                           </Space>
                         </div>
@@ -551,6 +595,29 @@ function HomePage() {
             </Form>
           </Space>
         )}
+      </Modal>
+      <Modal
+        title={`重命名项目 · ${renameTarget?.title}`}
+        open={renameOpen}
+        onCancel={() => {
+          setRenameOpen(false);
+          renameForm.resetFields();
+        }}
+        onOk={handleRenameFinish}
+        destroyOnClose
+      >
+        <Form form={renameForm} layout="vertical" requiredMark={false}>
+          <Form.Item
+            label="新项目名称"
+            name="title"
+            rules={[
+              { required: true, message: '请输入项目标题' },
+              { max: 256, message: '标题不能超过 256 个字符' },
+            ]}
+          >
+            <Input placeholder="请输入新的项目标题" />
+          </Form.Item>
+        </Form>
       </Modal>
     </Layout>
   );
