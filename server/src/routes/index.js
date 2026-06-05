@@ -17,9 +17,11 @@ router.use('/', healthRoutes);
 router.use('/docs', docRoutes);
 
 router.use('/boards', boardRoutes);
+
 // 用户/项目管理路由（D）
 router.use('/items', itemRoutes);
 
 // TODO: 由 E 实现版本/评论路由 router.use('/versions', ...) / router.use('/comments', ...)
+// 说明，评论路由是在文档路由下面的，不需要单独添加
 
 module.exports = router;
