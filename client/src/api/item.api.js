@@ -15,3 +15,11 @@ export function getItemDetail(id) {
 export function updateItemPermissions(id, data) {
   return request.put(`/items/${id}/permissions`, data);
 }
+
+export function updateItemTitle(itemId, title) {
+  return request.put(`/items/${itemId}/title`, { title });
+}
+
+export function deleteItem(itemId) {
+  return request.delete(`/items/${itemId}`);
+}

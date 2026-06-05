@@ -259,6 +259,48 @@ async function updateItemPermissions(userId, itemId, members) {
   return getItemDetail(userId, itemId);
 }
 
+async function updateItemTitle(userId, itemId, title) {
+  await assertItemOwner(userId, itemId);
+
+  const normalizedTitle = normalizeTitle(title);
+  if (!normalizedTitle) {
+    throw new AppError(400, AppError.CODES.BAD_REQUEST, '项目标题不能为空');
+  }
+  if (normalizedTitle.length > 256) {
+    throw new AppError(400, AppError.CODES.BAD_REQUEST, '项目标题长度不能超过 256 个字符');
+  }
+
+  const item = await prisma.collaborativeItem.update({
+    where: { item_id: itemId },
+    data: { title: normalizedTitle },
+    select: {
+      item_id: true,
+      title: true,
+      type: true,
+      owner_id: true,
+      is_public: true,
+      created_at: true,
+      updated_at: true,
+    },
+  });
+
+  return { ...item, role: 'owner' };
+}
+
+async function deleteItem(userId, itemId) {
+  await assertItemOwner(userId, itemId);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.permission.deleteMany({ where: { item_id: itemId } });
+    await tx.version.deleteMany({ where: { item_id: itemId } });
+    await tx.comment.deleteMany({ where: { item_id: itemId } });
+    
+    await tx.collaborativeItem.delete({ where: { item_id: itemId } });
+  });
+
+  return { item_id: itemId };
+}
+
 module.exports = {
   listItems,
   createItem,
@@ -267,4 +309,6 @@ module.exports = {
   getItemRole,
   assertItemReadable,
   assertItemOwner,
+  updateItemTitle,
+  deleteItem,
 };

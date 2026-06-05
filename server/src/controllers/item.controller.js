@@ -41,9 +41,34 @@ async function updateItemPermissionsController(req, res, next) {
   }
 }
 
+async function updateItemTitleController(req, res, next) {
+  try {
+    const { title } = req.body;
+    const item = await itemService.updateItemTitle(
+      req.user.userId,
+      req.params.id,
+      title
+    );
+    return success(res, item, '项目重命名成功');
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function deleteItemController(req, res, next) {
+  try {
+    await itemService.deleteItem(req.user.userId, req.params.id);
+    return success(res, null, '项目删除成功');
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   listItemsController,
   createItemController,
   getItemDetailController,
   updateItemPermissionsController,
+  updateItemTitleController,
+  deleteItemController,
 };
