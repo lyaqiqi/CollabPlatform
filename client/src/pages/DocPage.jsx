@@ -106,6 +106,16 @@ function DocPage() {
   const hydratedRef = useRef(false); // 始终保存最新 hydrated，供 cleanup 判断
   const editorRef = useRef(null);
 
+  const [previewVersion, setPreviewVersion] = useState(null);
+
+  const handlePreviewVersion = useCallback((version) => {
+    setPreviewVersion(version);
+  }, []);
+  
+  const handleClosePreview = useCallback(() => {
+    setPreviewVersion(null);
+  }, []);
+
   useEffect(() => { ydocRef.current = ydoc; }, [ydoc]);
   useEffect(() => { hydratedRef.current = hydrated; }, [hydrated]);
 
@@ -234,6 +244,33 @@ function DocPage() {
     }, SAVE_DEBOUNCE_MS);
   }, [persistDoc, id, socketEmit]);
 
+  const lastAutoSaveRef = useRef(0);
+  const hasChangesRef = useRef(false);
+
+  useEffect(() => {
+    if (!ydoc || !hydrated) return undefined;
+    const onUpdate = () => { hasChangesRef.current = true; };
+    ydoc.on('update', onUpdate);
+    return () => ydoc.off('update', onUpdate);
+  }, [ydoc, hydrated]);
+
+  useEffect(() => {
+    if (!id || !ydoc || !hydrated) return undefined;
+    const timer = setInterval(() => {
+      const now = Date.now();
+      // 30秒内没有手动保存过，且文档有实际变化
+      if (hasChangesRef.current && now - lastAutoSaveRef.current > 30000) {
+        lastAutoSaveRef.current = now;
+        hasChangesRef.current = false;
+        // 复用已有的 persistDoc 保存内容，但不创建 Version 记录
+        // 如果需要同时创建 Version 记录，调用 handleCreateCheckpoint('自动保存')
+        // persistDoc();
+        handleCreateCheckpoint('自动保存').catch(() => {});
+      }
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [id, ydoc, hydrated, persistDoc]);
+
   useEffect(() => {
     if (!ydoc || !hydrated) return undefined;
     const onUpdate = (_update, origin) => { if (origin !== 'persisted') scheduleSave(); };
@@ -270,6 +307,7 @@ function DocPage() {
           title: titleRef.current,
           label: label || undefined,
           created_by: user?.user_id,
+          text_preview: editorRef.current?.getDocumentText?.()?.slice(0, 2000) || '',
         },
       });
       Toast.success('已创建版本快照');
@@ -286,14 +324,22 @@ function DocPage() {
   /* 版本恢复 */
   const handleRestoreVersion = useCallback(async (versionId) => {
     if (!id || !versionId) return;
+    const currentRole = sidebarData.members.find(
+      (m) => m.user_id === user?.user_id
+    )?.role;
+    if (currentRole !== 'owner') {
+      Toast.error('只有文档所有者可以恢复版本');
+      return;
+    }
     try {
       await restoreDocVersion(id, versionId);
       Toast.success('版本已恢复，即将刷新页面…');
+      socketEmit(SOCKET_EVENTS.DOC_VERSION_RESTORED, { itemId: id });
       setTimeout(() => window.location.reload(), 1200);
     } catch (err) {
       Toast.error(err?.message || '版本恢复失败');
     }
-  }, [id]);
+  }, [id, sidebarData.members, user?.user_id, socketEmit]);
 
   /* 解决评论 */
   const handleResolveComment = useCallback(async (commentId) => {
@@ -475,99 +521,152 @@ function DocPage() {
   }
 
   /* ── 主布局 ── */
-  return (
-    <DocShell
-      leftCollapsed={leftCollapsed}
-      rightOpen={rightPanelOpen}
-      header={
-        <DocImmersiveHeader
-          title={title}
-          onlineUsers={onlineUsers}
-          onToggleLeft={() => setLeftCollapsed((p) => !p)}
-          leftCollapsed={leftCollapsed}
-          onOpenComments={() => openRightPanel('comments')}
-          onOpenVersions={() => openRightPanel('versions')}
-          onOpenSearch={() => openRightPanel('search')}
-          onShare={handleShare}
-          onExport={handleExport}
-        />
-      }
-      left={
-        <DocLeftSidebar
-          outlineTree={outlineTree}
-          onJumpToOutline={(pos) => editorRef.current?.jumpToPosition?.({ from: pos, to: pos + 1 })}
-          onOpenVersions={() => openRightPanel('versions')}
-        />
-      }
-      center={
-        <div className="doc-center-canvas">
-          {!connected && (
-            <div className="doc-offline-banner">
-              协作通道已断开，本地编辑将在重新连接后自动同步…
-            </div>
-          )}
-
-          <DocTitleBlock
+    return (
+    <>
+      <DocShell
+        leftCollapsed={leftCollapsed}
+        rightOpen={rightPanelOpen}
+        header={
+          <DocImmersiveHeader
             title={title}
-            onTitleChange={(v) => { setTitle(v); titleRef.current = v; scheduleSave(); }}
-            onTitleBlur={persistDoc}
-            saving={saving}
-            connected={connected}
-            undoManager={undoManager}
+            onlineUsers={onlineUsers}
+            onToggleLeft={() => setLeftCollapsed((p) => !p)}
+            leftCollapsed={leftCollapsed}
+            onOpenComments={() => openRightPanel('comments')}
+            onOpenVersions={() => openRightPanel('versions')}
+            onOpenSearch={() => openRightPanel('search')}
+            onShare={handleShare}
+            onExport={handleExport}
           />
+        }
+        left={
+          <DocLeftSidebar
+            outlineTree={outlineTree}
+            onJumpToOutline={(pos) => editorRef.current?.jumpToPosition?.({ from: pos, to: pos + 1 })}
+            onOpenVersions={() => openRightPanel('versions')}
+          />
+        }
+        center={
+          <div className="doc-center-canvas">
+            {!connected && (
+              <div className="doc-offline-banner">
+                协作通道已断开，本地编辑将在重新连接后自动同步…
+              </div>
+            )}
 
-          <div className="doc-content-divider" />
-
-          {!editorReady ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh' }}>
-              <Spin tip="正在初始化编辑器…" />
-            </div>
-          ) : (
-            <DocEditor
-              ref={editorRef}
-              ydoc={ydoc}
-              provider={provider}
-              user={user}
-              color={color}
+            <DocTitleBlock
+              title={title}
+              onTitleChange={(v) => { setTitle(v); titleRef.current = v; scheduleSave(); }}
+              onTitleBlur={persistDoc}
+              saving={saving}
+              connected={connected}
               undoManager={undoManager}
-              onSelectionChange={setCurrentSelection}
-              onCreateCommentFromSelection={() => openRightPanel('comments')}
-              onDocumentOutlineChange={setOutlineTree}
-              commentAnchors={sidebarData.comments}
-              activeCommentId={activeCommentId}
             />
-          )}
-        </div>
-      }
-      right={
-        <DocRightPanel
-          open={rightPanelOpen}
-          activeTab={rightPanelTab}
-          onTabChange={setRightPanelTab}
-          onClose={() => setRightPanelOpen(false)}
-          loading={sidebarLoading}
-          comments={sidebarData.comments}
-          versions={sidebarData.versions}
-          members={sidebarData.members}
-          outline={outlineTree}
-          checkpointSaving={checkpointSaving}
-          onCreateCheckpoint={handleCreateCheckpoint}
-          onResolveComment={handleResolveComment}
-          onCreateComment={handleCreateComment}
-          onJumpToComment={handleJumpToComment}
-          onCreateReply={handleCreateReply}
-          onRestoreVersion={handleRestoreVersion}
-          onSearchInDoc={handleSearchInDoc}
-          onJumpToDocResult={handleJumpToDocResult}
-          onJumpToOutline={handleJumpToOutlineFromSearch}
-          onInviteMember={handleInviteMember}
-          onRemoveMember={handleRemoveMember}
-          currentSelection={currentSelection}
-          creatingComment={creatingComment}
-          activeCommentId={activeCommentId}
-        />
-      }
-    />
+
+            <div className="doc-content-divider" />
+
+            {!editorReady ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh' }}>
+                <Spin tip="正在初始化编辑器…" />
+              </div>
+            ) : (
+              <DocEditor
+                ref={editorRef}
+                ydoc={ydoc}
+                provider={provider}
+                user={user}
+                color={color}
+                undoManager={undoManager}
+                onSelectionChange={setCurrentSelection}
+                onCreateCommentFromSelection={() => openRightPanel('comments')}
+                onDocumentOutlineChange={setOutlineTree}
+                commentAnchors={sidebarData.comments}
+                activeCommentId={activeCommentId}
+              />
+            )}
+          </div>
+        }
+        right={
+          <DocRightPanel
+            open={rightPanelOpen}
+            activeTab={rightPanelTab}
+            onTabChange={setRightPanelTab}
+            onClose={() => setRightPanelOpen(false)}
+            loading={sidebarLoading}
+            comments={sidebarData.comments}
+            versions={sidebarData.versions}
+            members={sidebarData.members}
+            outline={outlineTree}
+            checkpointSaving={checkpointSaving}
+            onCreateCheckpoint={handleCreateCheckpoint}
+            onResolveComment={handleResolveComment}
+            onCreateComment={handleCreateComment}
+            onJumpToComment={handleJumpToComment}
+            onCreateReply={handleCreateReply}
+            onRestoreVersion={handleRestoreVersion}
+            onSearchInDoc={handleSearchInDoc}
+            onJumpToDocResult={handleJumpToDocResult}
+            onJumpToOutline={handleJumpToOutlineFromSearch}
+            onInviteMember={handleInviteMember}
+            onRemoveMember={handleRemoveMember}
+            currentSelection={currentSelection}
+            creatingComment={creatingComment}
+            activeCommentId={activeCommentId}
+            onPreviewVersion={handlePreviewVersion}
+            currentUserRole={sidebarData.members.find(m => m.user_id === user?.user_id)?.role}
+          />
+        }
+      />
+
+      {/* 版本预览弹窗 */}
+      {previewVersion && (
+        <Modal
+          title={`版本预览 · ${new Date(previewVersion.created_at).toLocaleString()}`}
+          open={true}
+          onCancel={handleClosePreview}
+          footer={[
+            <Button key="close" onClick={handleClosePreview}>
+              关闭
+            </Button>,
+            sidebarData.members.find(m => m.user_id === user?.user_id)?.role === 'owner' && (
+              <Button
+                key="restore"
+                type="primary"
+                danger
+                onClick={() => {
+                  handleRestoreVersion(previewVersion.version_id);
+                  handleClosePreview();
+                }}
+              >
+                恢复到此版本
+              </Button>
+            ),
+          ].filter(Boolean)}
+          width={720}
+        >
+          <div style={{ maxHeight: 480, overflow: 'auto', padding: '8px 0' }}>
+            <h3 style={{ marginTop: 0 }}>
+              {previewVersion.content_snapshot?.title || '未命名文档'}
+            </h3>
+            <div style={{ 
+              background: '#f5f5f5', 
+              padding: 16, 
+              borderRadius: 8,
+              fontSize: 14,
+              lineHeight: 1.8,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}>
+              {previewVersion.content_snapshot?.text_preview || '（该版本没有文本预览）'}
+            </div>
+            <div style={{ marginTop: 12, fontSize: 12, color: '#888' }}>
+              创建者: {previewVersion.content_snapshot?.created_by || '未知'} · 
+              标签: {previewVersion.content_snapshot?.label || '手动快照'}
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }
 

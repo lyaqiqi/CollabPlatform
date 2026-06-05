@@ -35,6 +35,7 @@ export default function DocCollabSidebar({
   currentSelection,
   creatingComment,
   activeCommentId,
+  onPreviewVersion,
   embedded = false,
 }) {
   const [commentInput, setCommentInput] = useState('');
@@ -279,12 +280,32 @@ export default function DocCollabSidebar({
             locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无版本快照" /> }}
             dataSource={versions}
             renderItem={(item, index) => (
-              <List.Item>
+              <List.Item
+                actions={[
+                  <Button
+                    key="preview"
+                    type="link"
+                    size="small"
+                    onClick={() => onPreviewVersion?.(item)}
+                  >
+                    预览
+                  </Button>,
+                  <Button
+                    key="restore"
+                    type="link"
+                    size="small"
+                    onClick={() => onRestoreVersion(item.version_id)}
+                  >
+                    恢复
+                  </Button>,
+                ]}
+              >
                 <List.Item.Meta
                   title={`版本 #${versions.length - index}`}
                   description={
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                       {formatTime(item.created_at)}
+                      {item.content_snapshot?.label && ` · ${item.content_snapshot.label}`}
                     </Typography.Text>
                   }
                 />
