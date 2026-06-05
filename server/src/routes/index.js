@@ -3,6 +3,7 @@ const authRoutes = require('./auth.routes');
 const healthRoutes = require('./health.routes');
 const boardRoutes = require('./boards.routes');
 const docRoutes = require('./doc.routes');
+const itemRoutes = require('./items.routes');
 
 const router = express.Router();
 
@@ -16,7 +17,9 @@ router.use('/', healthRoutes);
 router.use('/docs', docRoutes);
 
 router.use('/boards', boardRoutes);
-// TODO: 由 D 实现用户/项目管理路由 router.use('/items', ...)
+// 用户/项目管理路由（D）
+router.use('/items', itemRoutes);
+
 // TODO: 由 E 实现版本/评论路由 router.use('/versions', ...) / router.use('/comments', ...)
 
 module.exports = router;
