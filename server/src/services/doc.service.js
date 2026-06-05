@@ -315,12 +315,27 @@ async function listDocVersions(userId, itemId) {
 async function createDocVersion(userId, itemId, { content_snapshot }) {
   await assertDocumentAccess(itemId, userId, 'editor');
   const snapshot = content_snapshot || { type: 'manual_checkpoint', created_by: userId };
+  
   const version = await prisma.version.create({
     data: {
       item_id: itemId,
       content_snapshot: snapshot,
     },
   });
+  
+  // 只保留最近50条，删除旧的
+  const oldVersions = await prisma.version.findMany({
+    where: { item_id: itemId },
+    orderBy: { created_at: 'desc' },
+    skip: 50,
+    select: { version_id: true },
+  });
+  if (oldVersions.length > 0) {
+    await prisma.version.deleteMany({
+      where: { version_id: { in: oldVersions.map(v => v.version_id) } },
+    });
+  }
+  
   return toVersionDto(version);
 }
 

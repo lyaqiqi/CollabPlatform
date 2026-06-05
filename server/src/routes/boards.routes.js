@@ -12,5 +12,9 @@ router.get('/:id', boardController.getBoardController);
 router.put('/:id', boardController.updateBoardController);
 router.delete('/:id', boardController.deleteBoardController);
 
+router.get('/:id/versions', boardController.listBoardVersionsController);
+router.post('/:id/versions', boardController.createBoardVersionController);
+router.post('/:id/versions/:versionId/restore', boardController.restoreBoardVersionController);
+
 module.exports = router;
 

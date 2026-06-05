@@ -68,6 +68,7 @@ async function listDocCommentsController(req, res, next) {
 async function createDocCommentController(req, res, next) {
   try {
     const comment = await docService.createDocComment(req.user.userId, req.params.id, req.body);
+    broadcastToRoom(req.params.id, 'doc:sidebar-changed', { itemId: req.params.id });
     return success(res, comment, '评论已创建', 201);
   } catch (err) {
     next(err);
@@ -82,6 +83,7 @@ async function createCommentReplyController(req, res, next) {
       req.params.commentId,
       req.body
     );
+    broadcastToRoom(req.params.id, 'doc:sidebar-changed', { itemId: req.params.id });
     return success(res, reply, '回复已创建', 201);
   } catch (err) {
     next(err);
@@ -96,6 +98,7 @@ async function resolveDocCommentController(req, res, next) {
       req.params.commentId,
       req.body
     );
+    broadcastToRoom(req.params.id, 'doc:sidebar-changed', { itemId: req.params.id });
     return success(res, comment, '评论状态已更新');
   } catch (err) {
     next(err);
@@ -127,7 +130,6 @@ async function restoreDocVersionController(req, res, next) {
       req.params.id,
       req.params.versionId
     );
-    // 通知房间内所有人（包括操作者自己）版本已恢复，各端均需重载文档
     broadcastToRoom(req.params.id, 'doc:version-restored', {
       itemId: req.params.id,
       restoredBy: req.user.userId,

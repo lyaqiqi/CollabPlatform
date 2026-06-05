@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Button, Modal, Radio, Spin } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeftOutlined } from '@ant-design/icons';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
 import DocEditor from '../components/DocEditor';
@@ -527,17 +528,27 @@ function DocPage() {
         leftCollapsed={leftCollapsed}
         rightOpen={rightPanelOpen}
         header={
-          <DocImmersiveHeader
-            title={title}
-            onlineUsers={onlineUsers}
-            onToggleLeft={() => setLeftCollapsed((p) => !p)}
-            leftCollapsed={leftCollapsed}
-            onOpenComments={() => openRightPanel('comments')}
-            onOpenVersions={() => openRightPanel('versions')}
-            onOpenSearch={() => openRightPanel('search')}
-            onShare={handleShare}
-            onExport={handleExport}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+            <DocImmersiveHeader
+              title={title}
+              onlineUsers={onlineUsers}
+              onToggleLeft={() => setLeftCollapsed((p) => !p)}
+              leftCollapsed={leftCollapsed}
+              onOpenComments={() => openRightPanel('comments')}
+              onOpenVersions={() => openRightPanel('versions')}
+              onOpenSearch={() => openRightPanel('search')}
+              onShare={handleShare}
+              onExport={handleExport}
+            />
+            <Button 
+              type="default" 
+              icon={<ArrowLeftOutlined />}
+              onClick={() => navigate('/')}
+              style={{ marginLeft: 16 }}
+            >
+              回到主界面
+            </Button>
+          </div>
         }
         left={
           <DocLeftSidebar

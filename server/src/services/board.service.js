@@ -141,4 +141,81 @@ async function deleteBoard(userId, itemId) {
   return deleted;
 }
 
-module.exports = { listBoards, createBoard, getBoard, updateBoard, deleteBoard };
+function toVersionDto(version) {
+  return {
+    version_id: version.version_id,
+    item_id: version.item_id,
+    content_snapshot: version.content_snapshot,
+    created_at: version.created_at,
+  };
+}
+
+/** GET /api/boards/:id/versions */
+async function listBoardVersions(userId, itemId) {
+  await assertBoardReadable({ userId, itemId });
+  const versions = await prisma.version.findMany({
+    where: { item_id: itemId },
+    orderBy: { created_at: 'desc' },
+  });
+  return versions.map(toVersionDto);
+}
+
+/** POST /api/boards/:id/versions */
+async function createBoardVersion(userId, itemId, { content_snapshot }) {
+  await assertBoardWritable({ userId, itemId });
+  const snapshot = content_snapshot || { type: 'manual_checkpoint', created_by: userId };
+  
+  const version = await prisma.version.create({
+    data: {
+      item_id: itemId,
+      content_snapshot: snapshot,
+    },
+  });
+  
+  // 只保留最近50条，删除旧的
+  const oldVersions = await prisma.version.findMany({
+    where: { item_id: itemId },
+    orderBy: { created_at: 'desc' },
+    skip: 50,
+    select: { version_id: true },
+  });
+  if (oldVersions.length > 0) {
+    await prisma.version.deleteMany({
+      where: { version_id: { in: oldVersions.map(v => v.version_id) } },
+    });
+  }
+  
+  return toVersionDto(version);
+}
+
+/** POST /api/boards/:id/versions/:versionId/restore — Owner 可回滚 */
+async function restoreBoardVersion(userId, itemId, versionId) {
+  await assertBoardOwner({ userId, itemId });   // 仅 Owner 可回滚
+  const version = await prisma.version.findUnique({ where: { version_id: versionId } });
+  if (!version || version.item_id !== itemId) {
+    throw new AppError(404, AppError.CODES.NOT_FOUND, '版本快照不存在');
+  }
+  const snapshot = version.content_snapshot;
+  if (!snapshot?.canvas) {
+    throw new AppError(400, AppError.CODES.BAD_REQUEST, '该版本没有可恢复的内容快照');
+  }
+  const updated = await prisma.collaborativeItem.update({
+    where: { item_id: itemId },
+    data: {
+      content_data: { canvas: snapshot.canvas },
+      ...(snapshot.title ? { title: snapshot.title } : {}),
+    },
+  });
+  return updated;
+}
+
+module.exports = {
+  listBoards,
+  createBoard,
+  getBoard,
+  updateBoard,
+  deleteBoard,
+  listBoardVersions,
+  createBoardVersion,
+  restoreBoardVersion,
+};

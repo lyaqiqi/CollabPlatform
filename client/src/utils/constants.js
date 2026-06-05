@@ -29,4 +29,6 @@ export const SOCKET_EVENTS = {
   DOC_TITLE_CHANGED: 'doc:title-changed',     // 标题被其他用户修改
   DOC_SIDEBAR_CHANGED: 'doc:sidebar-changed', // 评论/版本有新变更，通知刷新侧边栏
   DOC_VERSION_RESTORED: 'doc:version-restored', // 某用户执行了版本恢复，需全员 reload
+
+  BOARD_VERSION_RESTORED: 'board:version-restored',
 };

@@ -20,3 +20,14 @@ export function deleteBoard(id) {
   return request.delete(`/boards/${id}`);
 }
 
+export function listBoardVersions(id) {
+  return request.get(`/boards/${id}/versions`);
+}
+
+export function createBoardVersion(id, data = {}) {
+  return request.post(`/boards/${id}/versions`, data);
+}
+
+export function restoreBoardVersion(id, versionId) {
+  return request.post(`/boards/${id}/versions/${versionId}/restore`);
+}
