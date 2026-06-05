@@ -177,7 +177,15 @@ function CommentsPanel({
 }
 
 /* ─────────────── 版本历史面板 ─────────────── */
-function VersionsPanel({ versions, onCreateCheckpoint, checkpointSaving, onRestoreVersion }) {
+/* ─────────────── 版本历史面板 ─────────────── */
+function VersionsPanel({ 
+  versions, 
+  onCreateCheckpoint, 
+  checkpointSaving, 
+  onRestoreVersion,
+  onPreviewVersion,
+  currentUserRole,
+}) {
   const [label, setLabel] = useState('');
 
   const handleCreate = () => {
@@ -186,6 +194,10 @@ function VersionsPanel({ versions, onCreateCheckpoint, checkpointSaving, onResto
   };
 
   const handleRestore = (version, num) => {
+    if (currentUserRole !== 'owner') {
+      Modal.warning({ title: '权限不足', content: '只有文档所有者可以恢复版本' });
+      return;
+    }
     const vLabel = version.content_snapshot?.label ? `"${version.content_snapshot.label}"` : `#${num}`;
     Modal.confirm({
       title: '确认恢复版本',
@@ -225,6 +237,11 @@ function VersionsPanel({ versions, onCreateCheckpoint, checkpointSaving, onResto
                 <div className="version-item__label">{vLabel || `版本快照 #${num}`}</div>
                 <div className="version-item__time">{formatTime(item.created_at)}</div>
               </div>
+              <Tooltip title="预览版本内容">
+                <Button type="text" size="small"
+                  style={{ fontSize: 12, color: 'var(--doc-brand)', flexShrink: 0 }}
+                  onClick={() => onPreviewVersion?.(item)}>预览</Button>
+              </Tooltip>
               <Tooltip title="恢复到此版本">
                 <Button type="text" size="small"
                   style={{ fontSize: 12, color: 'var(--doc-brand)', flexShrink: 0 }}
@@ -436,6 +453,8 @@ export default function DocRightPanel({
   onSearchInDoc, onJumpToDocResult, onJumpToOutline,
   onInviteMember, onRemoveMember,
   currentSelection, creatingComment, activeCommentId,
+  onPreviewVersion,
+  currentUserRole,
 }) {
   if (!open) return null;
 
@@ -477,8 +496,14 @@ export default function DocRightPanel({
               />
             )}
             {activeTab === 'versions' && (
-              <VersionsPanel versions={versions} onCreateCheckpoint={onCreateCheckpoint}
-                checkpointSaving={checkpointSaving} onRestoreVersion={onRestoreVersion} />
+              <VersionsPanel 
+                versions={versions} 
+                onCreateCheckpoint={onCreateCheckpoint}
+                checkpointSaving={checkpointSaving} 
+                onRestoreVersion={onRestoreVersion}
+                onPreviewVersion={onPreviewVersion}
+                currentUserRole={currentUserRole}
+              />
             )}
             {activeTab === 'search' && (
               <SearchPanel
