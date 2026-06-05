@@ -108,6 +108,7 @@ function DocPage() {
   const editorRef = useRef(null);
 
   const [previewVersion, setPreviewVersion] = useState(null);
+  const sidebarRequestRef = useRef(null);
 
   const handlePreviewVersion = useCallback((version) => {
     setPreviewVersion(version);
@@ -181,12 +182,24 @@ function DocPage() {
   /* 加载协作面板数据（内部实现，供带/不带 loading 的两个版本共用） */
   const fetchSidebar = useCallback(async () => {
     if (!id) return;
-    const data = await getDocSidebar(id);
-    setSidebarData({
-      comments: data.comments || [],
-      versions: data.versions || [],
-      members: data.members || [],
-    });
+    if (sidebarRequestRef.current) {
+      return sidebarRequestRef.current;
+    }
+
+    sidebarRequestRef.current = getDocSidebar(id)
+      .then((data) => {
+        setSidebarData({
+          comments: data.comments || [],
+          versions: data.versions || [],
+          members: data.members || [],
+        });
+        return data;
+      })
+      .finally(() => {
+        sidebarRequestRef.current = null;
+      });
+
+    return sidebarRequestRef.current;
   }, [id]);
 
   const refreshSidebar = useCallback(async () => {

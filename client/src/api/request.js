@@ -2,12 +2,12 @@
 import { ERROR_CODES } from '../utils/constants';
 import useAuthStore, { TOKEN_KEY, REFRESH_TOKEN_KEY } from '../store/authStore';
 
-const baseURL = import.meta.env.VITE_API_BASE_URL;
+const baseURL = import.meta.env.VITE_API_BASE_URL || '/api';
 const AUTH_SKIP_REFRESH_PATHS = ['/auth/login', '/auth/register', '/auth/refresh'];
 
 const instance = axios.create({
   baseURL,
-  timeout: 10000,
+  timeout: 20000,
 });
 
 let refreshPromise = null;
@@ -36,7 +36,7 @@ async function refreshAccessToken() {
   const response = await axios.post(
     `${baseURL}/auth/refresh`,
     { refreshToken },
-    { timeout: 10000 }
+    { timeout: 20000 }
   );
 
   const nextAccessToken = response.data?.data?.accessToken;

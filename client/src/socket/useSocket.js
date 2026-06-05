@@ -2,7 +2,7 @@ import { io } from 'socket.io-client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { SOCKET_EVENTS } from '../utils/constants';
 
-const WS_URL = import.meta.env.VITE_WS_URL;
+const WS_URL = import.meta.env.VITE_WS_URL || window.location.origin;
 
 // 连接状态枚举
 export const SocketStatus = {

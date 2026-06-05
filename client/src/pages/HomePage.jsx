@@ -16,7 +16,7 @@
   Tag,
   Typography,
 } from 'antd';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Loading from '../components/Loading';
@@ -125,8 +125,11 @@ function HomePage() {
   const [createForm] = Form.useForm();
   const [memberForm] = Form.useForm();
   const setUser = useAuthStore((s) => s.setUser);
+  const dashboardRefreshingRef = useRef(false);
 
   const loadDashboard = useCallback(async () => {
+    if (dashboardRefreshingRef.current) return;
+    dashboardRefreshingRef.current = true;
     setLoading(true);
     try {
       if (debugPreview) {
@@ -138,6 +141,7 @@ function HomePage() {
       setUser(me);
       setItems(itemList);
     } finally {
+      dashboardRefreshingRef.current = false;
       setLoading(false);
     }
   }, [debugPreview, setUser]);
