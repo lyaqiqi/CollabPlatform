@@ -1,4 +1,4 @@
-import { Layout, Typography, Space, Button, Card, Tag, Input, Modal, Empty, List, Tooltip } from 'antd';
+import { Layout, Typography, Space, Button, Card, Tag, Input, Modal, Empty, List, Tooltip, Slider, ColorPicker } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeftOutlined } from '@ant-design/icons'; 
 import { Link, useParams, useNavigate } from 'react-router-dom';
@@ -23,6 +23,8 @@ import {
 import useAuthStore from '../store/authStore';
 import { useSocket, SocketStatus } from '../socket/useSocket';
 import { SOCKET_EVENTS } from '../utils/constants';
+import * as Y from 'yjs';
+import { applyPersistedYjsState, base64ToUint8, encodeYjsState, uint8ToBase64 } from '../collab/yjsUtils';
 
 const { Content } = Layout;
 
@@ -33,6 +35,66 @@ const TOOLS = {
   CIRCLE: 'circle',
   ARROW: 'arrow',
   TEXT: 'text',
+};
+
+const UI_TEXT = {
+  CONNECTED: '\u5df2\u8fde\u63a5',
+  CONNECTING: '\u8fde\u63a5\u4e2d',
+  RECONNECTING: '\u91cd\u8fde\u4e2d',
+  DISCONNECTED: '\u672a\u8fde\u63a5',
+  BOARD: '\u767d\u677f',
+  UNSAVED: '\u672a\u4fdd\u5b58',
+  SAVED: '\u5df2\u4fdd\u5b58',
+  PREVIEWING: '\u9884\u89c8\u4e2d',
+  VERSION_HISTORY: '\u7248\u672c\u5386\u53f2',
+  UNDO: '\u64a4\u9500',
+  REDO: '\u91cd\u505a',
+  DELETE: '\u5220\u9664',
+  EXPORT_PNG: '\u5bfc\u51fa PNG',
+  SAVE: '\u4fdd\u5b58',
+  BACK_HOME: '\u56de\u5230\u4e3b\u754c\u9762',
+  BOARD_TITLE: '\u767d\u677f\u6807\u9898',
+  SELECT: '\u9009\u62e9',
+  PENCIL: '\u753b\u7b14',
+  RECT: '\u77e9\u5f62',
+  CIRCLE: '\u5706\u5f62',
+  ARROW: '\u7bad\u5934',
+  TEXT: '\u6587\u5b57',
+  STROKE: '\u7ebf\u6761',
+  FILL: '\u586b\u5145',
+  STROKE_WIDTH: '\u7ebf\u5bbd',
+  ON: '\u5f00',
+  OFF: '\u5173',
+  PREVIEW_BANNER: '\u6b63\u5728\u9884\u89c8\u5386\u53f2\u7248\u672c',
+  EXIT_PREVIEW: '\u9000\u51fa\u9884\u89c8',
+  LOADING: '\u52a0\u8f7d\u4e2d...',
+  NO_VERSIONS: '\u6682\u65e0\u7248\u672c\u5feb\u7167',
+  SAVE_VERSION: '\u4fdd\u5b58\u7248\u672c',
+  TOOLTIP_SAVE_VERSION: '\u624b\u52a8\u4fdd\u5b58\u5f53\u524d\u7248\u672c',
+  TOOLTIP_PREVIEW: '\u9884\u89c8',
+  TOOLTIP_RESTORE: '\u6062\u590d\u5230\u6b64\u7248\u672c',
+  VERSION: '\u7248\u672c',
+  MANUAL: '\u624b\u52a8',
+  AUTO: '\u81ea\u52a8',
+  MANUAL_SAVE_DEFAULT: '\u624b\u52a8\u4fdd\u5b58',
+  VERSION_LABEL_PLACEHOLDER: '\u7248\u672c\u5907\u6ce8\uff08\u53ef\u9009\uff09',
+  PERMISSION_DENIED: '\u6743\u9650\u4e0d\u8db3',
+  ONLY_OWNER_CAN_RESTORE: '\u4ec5\u767d\u677f\u6240\u6709\u8005\u53ef\u6062\u590d\u7248\u672c',
+  CONFIRM_RESTORE: '\u786e\u8ba4\u6062\u590d\u7248\u672c',
+  CONFIRM: '\u786e\u5b9a',
+  CANCEL: '\u53d6\u6d88',
+  RESTORE: '\u6062\u590d',
+  RESTORE_SUCCESS: '\u7248\u672c\u6062\u590d\u6210\u529f',
+  RESTORE_FAIL: '\u6062\u590d\u5931\u8d25',
+  SAVE_SUCCESS: '\u5df2\u4fdd\u5b58',
+  SAVE_FAIL: '\u4fdd\u5b58\u5931\u8d25',
+  LOAD_FAIL: '\u767d\u677f\u52a0\u8f7d\u5931\u8d25',
+  VERSION_MISSING_CANVAS: '\u8be5\u7248\u672c\u6ca1\u6709\u53ef\u9884\u89c8\u7684\u5185\u5bb9',
+  SAVE_SNAPSHOT: '\u4fdd\u5b58\u7248\u672c\u5feb\u7167',
+  UNTITLED_BOARD: '\u672a\u547d\u540d\u767d\u677f',
+  RESTORE_CONFIRM_PREFIX: '\u6062\u590d\u540e\u767d\u677f\u5185\u5bb9\u5c06\u56de\u6eda\u5230 ',
+  RESTORE_CONFIRM_SUFFIX: '\uff0c\u5f53\u524d\u5185\u5bb9\u5c06\u88ab\u8986\u76d6\u3002\u786e\u5b9a\u7ee7\u7eed\uff1f',
+  REMOTE_RESTORED: '\u534f\u4f5c\u8005\u6062\u590d\u4e86\u7248\u672c\u5feb\u7167\uff0c\u767d\u677f\u5373\u5c06\u5237\u65b0\u2026',
 };
 
 function hashColor(input) {
@@ -81,13 +143,21 @@ function BoardPage() {
   const toolRef = useRef(TOOLS.SELECT);
   const lastCursorSentAtRef = useRef(0);
   const joinedRef = useRef(false);
+  const requestedSyncRef = useRef(false);
   const saveTimerRef = useRef(null);
   const syncTimerRef = useRef(null);
   const historyRef = useRef({ stack: [], index: -1 });
   const previewBackupRef = useRef(null);
-  const lastAutoSnapshotRef = useRef(null);   // ← 上次自动保存的快照内容
-  const lastAutoSaveTimeRef = useRef(0);      // ← 上次自动保存的时间戳
+  const lastAutoSnapshotRef = useRef(null);
+  const lastAutoSaveTimeRef = useRef(0);
   const navigate = useNavigate();
+
+  const ydocRef = useRef(null);
+  const yObjectsRef = useRef(null);
+  const yUndoManagerRef = useRef(null);
+  const applyingYjsRef = useRef(false);
+  const suppressYjsEmitRef = useRef(false);
+  const objectIndexRef = useRef(new Map());
 
   const [loading, setLoading] = useState(true);
   const [board, setBoard] = useState(null);
@@ -98,18 +168,175 @@ function BoardPage() {
   const [versions, setVersions] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [previewingVersion, setPreviewingVersion] = useState(null);
-  const [savingManual, setSavingManual] = useState(false);   // ← 手动保存loading
+  const [savingManual, setSavingManual] = useState(false);   // �� �ֶ�����loading
+
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  const [strokeWidth, setStrokeWidth] = useState(3);
+  const [strokeColor, setStrokeColor] = useState('#1890ff');
+  const [fillColor, setFillColor] = useState('rgba(24, 144, 255, 0.15)');
+  const [fillEnabled, setFillEnabled] = useState(true);
 
   toolRef.current = tool;
 
   const connectionTag = useMemo(() => {
     if (socketStatus === SocketStatus.CONNECTED || socketStatus === SocketStatus.RECOVERED) {
-      return <Tag color="green">已连接</Tag>;
+      return <Tag color="green">{UI_TEXT.CONNECTED}</Tag>;
     }
-    if (socketStatus === SocketStatus.CONNECTING) return <Tag color="blue">连接中</Tag>;
-    if (socketStatus === SocketStatus.RECONNECTING) return <Tag color="orange">重连中</Tag>;
-    return <Tag>未连接</Tag>;
+    if (socketStatus === SocketStatus.CONNECTING) return <Tag color="blue">{UI_TEXT.CONNECTING}</Tag>;
+    if (socketStatus === SocketStatus.RECONNECTING) return <Tag color="orange">{UI_TEXT.RECONNECTING}</Tag>;
+    return <Tag>{UI_TEXT.DISCONNECTED}</Tag>;
   }, [socketStatus]);
+
+  const updateUndoState = useCallback(() => {
+    const um = yUndoManagerRef.current;
+    if (!um) {
+      setCanUndo(false);
+      setCanRedo(false);
+      return;
+    }
+    setCanUndo(um.canUndo());
+    setCanRedo(um.canRedo());
+  }, []);
+
+  const ensureObjectId = useCallback((obj) => {
+    if (!obj) return null;
+    const current = obj.objectId || obj.get?.('objectId');
+    if (current) {
+      if (!obj.objectId) obj.objectId = current;
+      if (obj.get?.('objectId') !== current) obj.set?.('objectId', current);
+      return current;
+    }
+    const next = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    obj.objectId = next;
+    obj.set?.('objectId', next);
+    return next;
+  }, []);
+
+  const serializeFabricObject = useCallback((obj) => {
+    if (!obj) return null;
+    ensureObjectId(obj);
+    return JSON.stringify(obj.toObject(['objectId']));
+  }, [ensureObjectId]);
+
+  const upsertYjsObjectFromFabric = useCallback((obj) => {
+    const ydoc = ydocRef.current;
+    const yObjects = yObjectsRef.current;
+    if (!ydoc || !yObjects) return;
+    const id = ensureObjectId(obj);
+    const jsonStr = serializeFabricObject(obj);
+    if (!id || !jsonStr) return;
+    ydoc.transact(() => {
+      yObjects.set(id, jsonStr);
+    }, 'local-fabric');
+  }, [ensureObjectId, serializeFabricObject]);
+
+  const deleteYjsObject = useCallback((objectId) => {
+    const ydoc = ydocRef.current;
+    const yObjects = yObjectsRef.current;
+    if (!ydoc || !yObjects || !objectId) return;
+    ydoc.transact(() => {
+      yObjects.delete(objectId);
+    }, 'local-fabric');
+  }, []);
+
+  const applyYjsObjectToCanvas = useCallback(async (objectId, jsonStr) => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    if (!objectId || !jsonStr) return;
+    const parsed = safeParseJson(jsonStr);
+    if (!parsed) return;
+
+    applyingYjsRef.current = true;
+    try {
+      const existing = objectIndexRef.current.get(objectId);
+      if (existing) {
+        canvas.remove(existing);
+        objectIndexRef.current.delete(objectId);
+      }
+      const obj = await new Promise((resolve) => {
+        fabric.util.enlivenObjects([parsed], (enlivened) => resolve(enlivened?.[0] || null));
+      });
+      if (!obj) return;
+      obj.objectId = objectId;
+      obj.set?.('objectId', objectId);
+      canvas.add(obj);
+      objectIndexRef.current.set(objectId, obj);
+      canvas.requestRenderAll();
+    } finally {
+      applyingYjsRef.current = false;
+    }
+  }, []);
+
+  const removeYjsObjectFromCanvas = useCallback((objectId) => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    if (!objectId) return;
+    const existing = objectIndexRef.current.get(objectId);
+    if (!existing) return;
+    applyingYjsRef.current = true;
+    try {
+      canvas.remove(existing);
+      objectIndexRef.current.delete(objectId);
+      canvas.requestRenderAll();
+    } finally {
+      applyingYjsRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!id) return undefined;
+
+    const ydoc = new Y.Doc();
+    const yObjects = ydoc.getMap('objects');
+    const undoManager = new Y.UndoManager(yObjects);
+
+    ydocRef.current = ydoc;
+    yObjectsRef.current = yObjects;
+    yUndoManagerRef.current = undoManager;
+    updateUndoState();
+
+    const onUndoChanged = () => updateUndoState();
+    undoManager.on('stack-item-added', onUndoChanged);
+    undoManager.on('stack-item-popped', onUndoChanged);
+    undoManager.on('stack-cleared', onUndoChanged);
+
+    const onYUpdate = (update, origin) => {
+      if (origin === 'remote' || origin === 'persisted') return;
+      if (suppressYjsEmitRef.current) return;
+      emit(SOCKET_EVENTS.BOARD_OPERATION, { itemId: id, update: uint8ToBase64(update) });
+    };
+    ydoc.on('update', onYUpdate);
+
+    const onYObjectsChanged = (event) => {
+      if (event?.transaction?.origin === 'local-fabric') return;
+      const keys = Array.from(event.keysChanged);
+      keys.forEach((key) => {
+        const value = yObjects.get(key);
+        if (typeof value === 'undefined') {
+          removeYjsObjectFromCanvas(key);
+        } else {
+          applyYjsObjectToCanvas(key, value);
+        }
+      });
+    };
+    yObjects.observe(onYObjectsChanged);
+
+    return () => {
+      yObjects.unobserve(onYObjectsChanged);
+      ydoc.off('update', onYUpdate);
+      undoManager.off('stack-item-added', onUndoChanged);
+      undoManager.off('stack-item-popped', onUndoChanged);
+      undoManager.off('stack-cleared', onUndoChanged);
+      ydoc.destroy();
+      ydocRef.current = null;
+      yObjectsRef.current = null;
+      yUndoManagerRef.current = null;
+      objectIndexRef.current = new Map();
+      updateUndoState();
+    };
+  }, [applyYjsObjectToCanvas, emit, id, removeYjsObjectFromCanvas, updateUndoState]);
 
   const takeSnapshot = useCallback(() => {
     const canvas = fabricRef.current;
@@ -131,20 +358,19 @@ function BoardPage() {
       canvas.loadFromJSON(parsed, () => {
         canvas.renderAll();
         applyingRemoteRef.current = false;
-        if (emitSync) {
-          emit(SOCKET_EVENTS.BOARD_SYNC, { itemId: id, canvas: snapshotStr });
-        }
+        if (emitSync) {}
         if (save) {
           setDirty(true);
           if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
           saveTimerRef.current = setTimeout(() => {
-            updateBoard(id, { title, content_data: { canvas: snapshotStr } }).catch(() => {});
+            const ydoc = ydocRef.current;
+            updateBoard(id, { title, content_data: { canvas: snapshotStr, yjs: ydoc ? encodeYjsState(ydoc) : null } }).catch(() => {});
             setDirty(false);
           }, 1200);
         }
       });
     },
-    [emit, id, title]
+    [id, title]
   );
 
   const scheduleSyncAndSave = useCallback(() => {
@@ -154,30 +380,26 @@ function BoardPage() {
 
     setDirty(true);
 
-    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
-    syncTimerRef.current = setTimeout(() => {
-      const snapshotStr = serializeCanvas(canvas);
-      emit(SOCKET_EVENTS.BOARD_SYNC, { itemId: id, canvas: snapshotStr });
-    }, 120);
-
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       const snapshotStr = serializeCanvas(canvas);
-      updateBoard(id, { title, content_data: { canvas: snapshotStr } }).catch(() => {});
+      const ydoc = ydocRef.current;
+      updateBoard(id, { title, content_data: { canvas: snapshotStr, yjs: ydoc ? encodeYjsState(ydoc) : null } }).catch(() => {});
       setDirty(false);
     }, 1200);
-  }, [emit, id, title]);
+  }, [id, title]);
 
   const saveNow = useCallback(() => {
     const canvas = fabricRef.current;
     if (!canvas) return;
     const snapshotStr = serializeCanvas(canvas);
-    updateBoard(id, { title, content_data: { canvas: snapshotStr } })
+    const ydoc = ydocRef.current;
+    updateBoard(id, { title, content_data: { canvas: snapshotStr, yjs: ydoc ? encodeYjsState(ydoc) : null } })
       .then(() => {
         setDirty(false);
-        Toast.success('已保存');
+        Toast.success(UI_TEXT.SAVE_SUCCESS);
       })
-      .catch((e) => Toast.error(e.message || '保存失败'));
+      .catch((e) => Toast.error(e.message || UI_TEXT.SAVE_FAIL));
   }, [id, title]);
 
   const exportPng = useCallback(() => {
@@ -203,26 +425,22 @@ function BoardPage() {
   }, [scheduleSyncAndSave, takeSnapshot]);
 
   const undo = useCallback(() => {
-    const { stack, index } = historyRef.current;
-    if (index <= 0) return;
-    historyRef.current = { stack, index: index - 1 };
-    applySnapshot(stack[index - 1]);
-  }, [applySnapshot]);
+    yUndoManagerRef.current?.undo();
+    updateUndoState();
+  }, [updateUndoState]);
 
   const redo = useCallback(() => {
-    const { stack, index } = historyRef.current;
-    if (index >= stack.length - 1) return;
-    historyRef.current = { stack, index: index + 1 };
-    applySnapshot(stack[index + 1]);
-  }, [applySnapshot]);
+    yUndoManagerRef.current?.redo();
+    updateUndoState();
+  }, [updateUndoState]);
 
-  /* ─────────────── 版本快照相关 ─────────────── */
+  // Versions
   const fetchVersions = useCallback(async () => {
     try {
       const data = await listBoardVersions(id);
       setVersions(data);
     } catch (e) {
-      console.error('获取版本列表失败', e);
+      console.error('fetch versions failed', e);
     }
   }, [id]);
 
@@ -232,7 +450,7 @@ function BoardPage() {
       if (!canvas) return;
       const snapshot = version.content_snapshot;
       if (!snapshot?.canvas) {
-        Toast.error('该版本没有可预览的内容');
+        Toast.error(UI_TEXT.VERSION_MISSING_CANVAS);
         return;
       }
       if (!previewingVersion) {
@@ -272,32 +490,32 @@ function BoardPage() {
   const handleRestoreVersion = useCallback(
     (versionId) => {
       if (board?.owner_id !== user?.user_id) {
-        Modal.warning({ title: '权限不足', content: '仅白板所有者可恢复版本' });
+        Modal.warning({ title: UI_TEXT.PERMISSION_DENIED, content: UI_TEXT.ONLY_OWNER_CAN_RESTORE });
         return;
       }
       const version = versions.find((v) => v.version_id === versionId);
       const idx = versions.findIndex((v) => v.version_id === versionId);
       const num = versions.length - idx;
-      const vLabel = version?.content_snapshot?.label || `版本 #${num}`;
+      const vLabel = version?.content_snapshot?.label || `${UI_TEXT.VERSION} #${num}`;
       Modal.confirm({
-        title: '确认恢复版本',
-        content: `恢复后白板内容将回滚到 ${vLabel}，当前内容将被覆盖。确定继续？`,
-        okText: '恢复',
+        title: UI_TEXT.CONFIRM_RESTORE,
+        content: `${UI_TEXT.RESTORE_CONFIRM_PREFIX}${vLabel}${UI_TEXT.RESTORE_CONFIRM_SUFFIX}`,
+        okText: UI_TEXT.RESTORE,
         okButtonProps: { danger: true },
-        cancelText: '取消',
+        cancelText: UI_TEXT.CANCEL,
         onOk: async () => {
           try {
             await restoreBoardVersion(id, versionId);
-            Toast.success('版本恢复成功');
+            Toast.success(UI_TEXT.RESTORE_SUCCESS);
             const data = await getBoard(id);
             setBoard(data);
             setTitle(data.title || '');
             setPreviewingVersion(null);
             previewBackupRef.current = null;
-            lastAutoSnapshotRef.current = null;   // ← 重置自动保存基准
+            lastAutoSnapshotRef.current = null;
             fetchVersions();
           } catch (e) {
-            Toast.error(e.message || '恢复失败');
+            Toast.error(e.message || UI_TEXT.RESTORE_FAIL);
           }
         },
       });
@@ -305,7 +523,7 @@ function BoardPage() {
     [board?.owner_id, user?.user_id, id, versions, fetchVersions]
   );
 
-  /* ─────────────── 手动保存版本 ─────────────── */
+  // Manual version save
   const handleManualSave = useCallback(() => {
     const canvas = fabricRef.current;
     if (!canvas) return;
@@ -313,10 +531,10 @@ function BoardPage() {
     let label = '';
 
     Modal.confirm({
-      title: '保存版本快照',
+      title: UI_TEXT.SAVE_SNAPSHOT,
       content: (
         <Input
-          placeholder="版本备注（可选）"
+          placeholder={UI_TEXT.VERSION_LABEL_PLACEHOLDER}
           id="manual-version-label"
           maxLength={50}
           style={{ marginTop: 8 }}
@@ -326,10 +544,10 @@ function BoardPage() {
           }}
         />
       ),
-      okText: '保存',
-      cancelText: '取消',
+      okText: UI_TEXT.SAVE,
+      cancelText: UI_TEXT.CANCEL,
       onOk: async () => {
-        label = document.getElementById('manual-version-label')?.value?.trim() || '手动保存';
+        label = document.getElementById('manual-version-label')?.value?.trim() || UI_TEXT.MANUAL_SAVE_DEFAULT;
 
         setSavingManual(true);
         try {
@@ -337,19 +555,18 @@ function BoardPage() {
           await createBoardVersion(id, {
             content_snapshot: {
               canvas: snapshotStr,
-              title: title || '未命名白板',
+              title: title || UI_TEXT.UNTITLED_BOARD,
               type: 'manual_checkpoint',
               created_by: user?.user_id,
               label,
             },
           });
-          // 更新自动保存基准，避免手动保存后立即又自动保存
           lastAutoSnapshotRef.current = snapshotStr;
           lastAutoSaveTimeRef.current = Date.now();
-          Toast.success(`版本"${label}"已保存`);
+          Toast.success(`${UI_TEXT.VERSION} "${label}" ${UI_TEXT.SAVE_SUCCESS}`);
           fetchVersions();
         } catch (e) {
-          Toast.error(e.message || '保存失败');
+          Toast.error(e.message || UI_TEXT.SAVE_FAIL);
         } finally {
           setSavingManual(false);
         }
@@ -357,7 +574,7 @@ function BoardPage() {
     });
   }, [id, title, user?.user_id, fetchVersions]);
 
-  /* ─────────────── 初始化：加载白板 & 版本列表 ─────────────── */
+  // Init
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -369,7 +586,7 @@ function BoardPage() {
         fetchVersions();
       })
       .catch((e) => {
-        Toast.error(e.message || '白板加载失败');
+        Toast.error(e.message || UI_TEXT.LOAD_FAIL);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -379,7 +596,7 @@ function BoardPage() {
     };
   }, [id, fetchVersions]);
 
-  /* ─────────────── Fabric 画布初始化 ─────────────── */
+  // Fabric canvas init
   useEffect(() => {
     if (!canvasElRef.current) return;
     if (fabricRef.current) return;
@@ -401,25 +618,66 @@ function BoardPage() {
     });
     if (containerRef.current) ro.observe(containerRef.current);
 
-    const onChanged = () => {
+    const onObjectAdded = (opt) => {
       if (applyingRemoteRef.current) return;
-      takeSnapshot();
+      if (applyingYjsRef.current) return;
+      const obj = opt?.target;
+      if (!obj) return;
+      const objectId = ensureObjectId(obj);
+      if (objectId) objectIndexRef.current.set(objectId, obj);
+      upsertYjsObjectFromFabric(obj);
       scheduleSyncAndSave();
     };
 
-    canvas.on('object:added', onChanged);
-    canvas.on('object:modified', onChanged);
-    canvas.on('object:removed', onChanged);
-    canvas.on('path:created', onChanged);
+    const onObjectModified = (opt) => {
+      if (applyingRemoteRef.current) return;
+      if (applyingYjsRef.current) return;
+      const obj = opt?.target;
+      if (!obj) return;
+      const objectId = ensureObjectId(obj);
+      if (objectId) objectIndexRef.current.set(objectId, obj);
+      upsertYjsObjectFromFabric(obj);
+      scheduleSyncAndSave();
+    };
+
+    const onObjectRemoved = (opt) => {
+      if (applyingRemoteRef.current) return;
+      if (applyingYjsRef.current) return;
+      const obj = opt?.target;
+      const objectId = obj?.objectId || obj?.get?.('objectId');
+      if (objectId) objectIndexRef.current.delete(objectId);
+      if (objectId) deleteYjsObject(objectId);
+      scheduleSyncAndSave();
+    };
+
+    const onPathCreated = (opt) => {
+      if (applyingRemoteRef.current) return;
+      if (applyingYjsRef.current) return;
+      const obj = opt?.path;
+      if (!obj) return;
+      const objectId = ensureObjectId(obj);
+      if (objectId) objectIndexRef.current.set(objectId, obj);
+      upsertYjsObjectFromFabric(obj);
+      scheduleSyncAndSave();
+    };
+
+    canvas.on('object:added', onObjectAdded);
+    canvas.on('object:modified', onObjectModified);
+    canvas.on('object:removed', onObjectRemoved);
+    canvas.on('path:created', onPathCreated);
 
     return () => {
       ro.disconnect();
+      canvas.off('object:added', onObjectAdded);
+      canvas.off('object:modified', onObjectModified);
+      canvas.off('object:removed', onObjectRemoved);
+      canvas.off('path:created', onPathCreated);
       canvas.dispose();
       fabricRef.current = null;
     };
-  }, [scheduleSyncAndSave, takeSnapshot]);
+  }, [deleteYjsObject, ensureObjectId, scheduleSyncAndSave, upsertYjsObjectFromFabric]);
 
-  /* ─────────────── 工具切换 ─────────────── */
+  // Tool switching
   useEffect(() => {
     const canvas = fabricRef.current;
     if (!canvas) return;
@@ -427,6 +685,10 @@ function BoardPage() {
     canvas.isDrawingMode = tool === TOOLS.PENCIL;
     canvas.selection = tool === TOOLS.SELECT;
     canvas.defaultCursor = tool === TOOLS.SELECT ? 'default' : 'crosshair';
+    if (canvas.freeDrawingBrush) {
+      canvas.freeDrawingBrush.color = strokeColor;
+      canvas.freeDrawingBrush.width = strokeWidth;
+    }
 
     const cleanupDrawing = () => {
       const drawing = drawingRef.current;
@@ -455,9 +717,9 @@ function BoardPage() {
           top: y,
           width: 1,
           height: 1,
-          fill: 'rgba(24, 144, 255, 0.15)',
-          stroke: '#1890ff',
-          strokeWidth: 2,
+          fill: fillEnabled ? fillColor : 'transparent',
+          stroke: strokeColor,
+          strokeWidth,
         });
         drawing.tempObj = rect;
         canvas.add(rect);
@@ -468,9 +730,9 @@ function BoardPage() {
           top: y,
           rx: 1,
           ry: 1,
-          fill: 'rgba(82, 196, 26, 0.15)',
-          stroke: '#52c41a',
-          strokeWidth: 2,
+          fill: fillEnabled ? fillColor : 'transparent',
+          stroke: strokeColor,
+          strokeWidth,
           originX: 'left',
           originY: 'top',
         });
@@ -478,11 +740,11 @@ function BoardPage() {
         canvas.add(circle);
         canvas.setActiveObject(circle);
       } else if (toolRef.current === TOOLS.TEXT) {
-        const text = new fabric.IText('文字', {
+        const text = new fabric.IText('����', {
           left: x,
           top: y,
           fontSize: 20,
-          fill: '#111',
+          fill: strokeColor,
         });
         canvas.add(text);
         canvas.setActiveObject(text);
@@ -491,8 +753,8 @@ function BoardPage() {
         cleanupDrawing();
       } else if (toolRef.current === TOOLS.ARROW) {
         const line = new fabric.Line([x, y, x + 1, y + 1], {
-          stroke: '#fa541c',
-          strokeWidth: 3,
+          stroke: strokeColor,
+          strokeWidth,
           selectable: false,
           evented: false,
         });
@@ -501,7 +763,7 @@ function BoardPage() {
           top: y,
           width: 12,
           height: 12,
-          fill: '#fa541c',
+          fill: strokeColor,
           originX: 'center',
           originY: 'center',
           selectable: false,
@@ -593,37 +855,77 @@ function BoardPage() {
       canvas.off('mouse:up', onMouseUp);
       cleanupDrawing();
     };
-  }, [tool]);
+  }, [fillColor, fillEnabled, strokeColor, strokeWidth, tool]);
 
-  /* ─────────────── 加载服务端数据到画布 ─────────────── */
+  /* ������������������������������ ���ط�������ݵ����� ������������������������������ */
   useEffect(() => {
     const canvas = fabricRef.current;
     if (!canvas) return;
     if (loading) return;
     if (!board) return;
 
+    const ydoc = ydocRef.current;
+    const yObjects = yObjectsRef.current;
+    const persistedYjs = board.content_data?.yjs;
     const snapshotStr = board.content_data?.canvas;
+
+    applyingRemoteRef.current = true;
+    canvas.clear();
+    canvas.setBackgroundColor('#fff', () => {});
+    objectIndexRef.current = new Map();
+
+    if (ydoc && yObjects && persistedYjs) {
+      suppressYjsEmitRef.current = true;
+      applyPersistedYjsState(ydoc, persistedYjs);
+      suppressYjsEmitRef.current = false;
+      setTimeout(() => {
+        applyingRemoteRef.current = false;
+        updateUndoState();
+        lastAutoSnapshotRef.current = serializeCanvas(canvas);
+        lastAutoSaveTimeRef.current = Date.now();
+      }, 0);
+      return;
+    }
+
     if (snapshotStr) {
       const parsed = safeParseJson(snapshotStr);
       if (parsed) {
-        applyingRemoteRef.current = true;
         canvas.loadFromJSON(parsed, () => {
+          canvas.getObjects().forEach((obj) => {
+            const objectId = ensureObjectId(obj);
+            if (objectId) objectIndexRef.current.set(objectId, obj);
+          });
           canvas.renderAll();
           applyingRemoteRef.current = false;
           takeSnapshot();
-          // 初始化自动保存基准
           lastAutoSnapshotRef.current = serializeCanvas(canvas);
           lastAutoSaveTimeRef.current = Date.now();
+
+          if (ydoc && yObjects) {
+            suppressYjsEmitRef.current = true;
+            ydoc.transact(() => {
+              Array.from(yObjects.keys()).forEach((key) => yObjects.delete(key));
+              canvas.getObjects().forEach((obj) => {
+                const objectId = ensureObjectId(obj);
+                const jsonStr = serializeFabricObject(obj);
+                if (objectId && jsonStr) yObjects.set(objectId, jsonStr);
+              });
+            }, 'bootstrap');
+            suppressYjsEmitRef.current = false;
+            updateUndoState();
+          }
         });
       } else {
+        applyingRemoteRef.current = false;
         takeSnapshot();
       }
     } else {
+      applyingRemoteRef.current = false;
       takeSnapshot();
     }
-  }, [board, loading, takeSnapshot]);
+  }, [board, ensureObjectId, loading, serializeFabricObject, takeSnapshot, updateUndoState]);
 
-  /* ─────────────── 智能自动保存：有变更且间隔≥30秒才保存 ─────────────── */
+  // Auto checkpoint: if changed and interval >= 30s, create a version snapshot.
   useEffect(() => {
     if (!id || !board || loading) return;
 
@@ -634,36 +936,34 @@ function BoardPage() {
       const now = Date.now();
       const snapshotStr = serializeCanvas(canvas);
 
-      // 1. 检查是否有变更（与上次自动保存的快照对比）
+      // 1. Has changed (compare with last checkpoint snapshot)
       const hasChanged = snapshotStr !== lastAutoSnapshotRef.current;
 
-      // 2. 检查是否达到最小间隔（30秒）
+      // 2. Interval >= 30s
       const timeElapsed = now - lastAutoSaveTimeRef.current >= 30000;
 
-      // 只有同时满足：有变更 + 间隔≥30秒，才保存
       if (hasChanged && timeElapsed) {
         createBoardVersion(id, {
           content_snapshot: {
             canvas: snapshotStr,
-            title: title || '未命名白板',
+            title: title || UI_TEXT.UNTITLED_BOARD,
             type: 'auto_checkpoint',
             created_by: user?.user_id,
           },
         })
           .then(() => {
-            // 更新基准
             lastAutoSnapshotRef.current = snapshotStr;
             lastAutoSaveTimeRef.current = now;
             fetchVersions();
           })
           .catch(() => {});
       }
-    }, 5000); // 每5秒检查一次，而不是30秒，这样更灵敏
+    }, 5000);
 
     return () => clearInterval(timer);
   }, [id, board, loading, title, user?.user_id, fetchVersions]);
 
-  /* ─────────────── Socket 连接 & 事件监听 ─────────────── */
+  // Socket events
   useEffect(() => {
     connect();
 
@@ -674,17 +974,41 @@ function BoardPage() {
       joinedRef.current = true;
     }
 
-    const handleSync = ({ canvas, userId, itemId }) => {
+    if (isConnected && joinedRef.current && !requestedSyncRef.current) {
+      requestedSyncRef.current = true;
+      emit(SOCKET_EVENTS.BOARD_SYNC_REQUEST, { itemId: id });
+    }
+
+    const handleOperation = ({ itemId, update }) => {
       if (itemId !== id) return;
-      if (!canvas) return;
-      applySnapshot(canvas, { emitSync: false, save: false });
-      if (userId) {
-        setRemoteCursors((prev) => {
-          const next = { ...prev };
-          if (!next[userId]) return prev;
-          return next;
-        });
-      }
+      if (!update) return;
+      const ydoc = ydocRef.current;
+      if (!ydoc) return;
+      try {
+        Y.applyUpdate(ydoc, base64ToUint8(update), 'remote');
+      } catch {}
+    };
+
+    const handleSyncRequest = ({ itemId, requesterSocketId }) => {
+      if (itemId !== id) return;
+      if (!requesterSocketId) return;
+      const ydoc = ydocRef.current;
+      if (!ydoc) return;
+      emit(SOCKET_EVENTS.BOARD_SYNC_RESPONSE, {
+        itemId: id,
+        requesterSocketId,
+        update: uint8ToBase64(Y.encodeStateAsUpdate(ydoc)),
+      });
+    };
+
+    const handleSyncResponse = ({ itemId, update }) => {
+      if (itemId !== id) return;
+      if (!update) return;
+      const ydoc = ydocRef.current;
+      if (!ydoc) return;
+      try {
+        Y.applyUpdate(ydoc, base64ToUint8(update), 'remote');
+      } catch {}
     };
 
     const handleCursor = ({ itemId, userId, x, y }) => {
@@ -712,25 +1036,21 @@ function BoardPage() {
 
     const handleVersionRestored = ({ itemId: restoredItemId }) => {
       if (restoredItemId !== id) return;
-      Toast.info('白板版本已被恢复，正在同步最新内容...');
-      getBoard(id)
-        .then((data) => {
-          setBoard(data);
-          setTitle(data.title || '');
-          // 恢复后重置自动保存基准
-          lastAutoSnapshotRef.current = null;
-          lastAutoSaveTimeRef.current = 0;
-        })
-        .catch(() => {});
+      Toast.info(UI_TEXT.REMOTE_RESTORED);
+      setTimeout(() => window.location.reload(), 1500);
     };
 
-    on(SOCKET_EVENTS.BOARD_SYNC, handleSync);
+    on(SOCKET_EVENTS.BOARD_OPERATION, handleOperation);
+    on(SOCKET_EVENTS.BOARD_SYNC_REQUEST, handleSyncRequest);
+    on(SOCKET_EVENTS.BOARD_SYNC_RESPONSE, handleSyncResponse);
     on(SOCKET_EVENTS.BOARD_CURSOR, handleCursor);
     on(SOCKET_EVENTS.USER_LEFT, handleUserLeft);
     on(SOCKET_EVENTS.BOARD_VERSION_RESTORED, handleVersionRestored);
 
     return () => {
-      off(SOCKET_EVENTS.BOARD_SYNC, handleSync);
+      off(SOCKET_EVENTS.BOARD_OPERATION, handleOperation);
+      off(SOCKET_EVENTS.BOARD_SYNC_REQUEST, handleSyncRequest);
+      off(SOCKET_EVENTS.BOARD_SYNC_RESPONSE, handleSyncResponse);
       off(SOCKET_EVENTS.BOARD_CURSOR, handleCursor);
       off(SOCKET_EVENTS.USER_LEFT, handleUserLeft);
       off(SOCKET_EVENTS.BOARD_VERSION_RESTORED, handleVersionRestored);
@@ -738,10 +1058,11 @@ function BoardPage() {
         leaveRoom(id);
         joinedRef.current = false;
       }
+      requestedSyncRef.current = false;
     };
-  }, [applySnapshot, connect, id, joinRoom, leaveRoom, off, on, socketStatus, user?.user_id]);
+  }, [connect, emit, id, joinRoom, leaveRoom, off, on, socketStatus, user?.user_id]);
 
-  /* ─────────────── 鼠标光标实时同步 ─────────────── */
+  // Cursor presence
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -761,7 +1082,7 @@ function BoardPage() {
     };
   }, [emit, id]);
 
-  /* ─────────────── 清理过期远程光标 ─────────────── */
+  /* ������������������������������ ��������Զ�̹�� ������������������������������ */
   useEffect(() => {
     const timer = setInterval(() => {
       setRemoteCursors((prev) => {
@@ -776,22 +1097,22 @@ function BoardPage() {
     return () => clearInterval(timer);
   }, []);
 
-  /* ─────────────── 渲染 ─────────────── */
+  /* ������������������������������ ��Ⱦ ������������������������������ */
   return (
     <Layout style={{ minHeight: '100vh', background: '#f5f5f5' }}>
       <Navbar />
       <Content style={{ padding: 16, display: 'flex', gap: 16 }}>
-        {/* 左侧主区域 */}
+        {/* Main area */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <Card
             title={
               <Space size={12} wrap>
-                <Typography.Text strong>白板</Typography.Text>
+                <Typography.Text strong>{UI_TEXT.BOARD}</Typography.Text>
                 {connectionTag}
-                {dirty ? <Tag color="gold">未保存</Tag> : <Tag color="default">已保存</Tag>}
+                {dirty ? <Tag color="gold">{UI_TEXT.UNSAVED}</Tag> : <Tag color="default">{UI_TEXT.SAVED}</Tag>}
                 {previewingVersion && (
                   <Tag color="orange" icon={<ClockCircleOutlined />}>
-                    预览中
+                    {UI_TEXT.PREVIEWING}
                   </Tag>
                 )}
               </Space>
@@ -802,30 +1123,30 @@ function BoardPage() {
                   onClick={() => setSidebarOpen((v) => !v)}
                   type={sidebarOpen ? 'primary' : 'default'}
                 >
-                  版本历史
+                  {UI_TEXT.VERSION_HISTORY}
                 </Button>
-                <Button onClick={undo} disabled={historyRef.current.index <= 0}>
-                  撤销
+                <Button onClick={undo} disabled={!canUndo}>
+                  {UI_TEXT.UNDO}
                 </Button>
                 <Button
                   onClick={redo}
-                  disabled={historyRef.current.index >= historyRef.current.stack.length - 1}
+                  disabled={!canRedo}
                 >
-                  重做
+                  {UI_TEXT.REDO}
                 </Button>
                 <Button danger onClick={deleteSelected}>
-                  删除
+                  {UI_TEXT.DELETE}
                 </Button>
-                <Button onClick={exportPng}>导出 PNG</Button>
+                <Button onClick={exportPng}>{UI_TEXT.EXPORT_PNG}</Button>
                 <Button type="primary" onClick={saveNow} disabled={!dirty}>
-                  保存
+                  {UI_TEXT.SAVE}
                 </Button>
                 <Button 
                     type="default" 
                     icon={<ArrowLeftOutlined />} 
                     onClick={() => navigate('/')}
                 >
-                    回到主界面
+                    {UI_TEXT.BACK_HOME}
                 </Button>
               </Space>
             }
@@ -840,7 +1161,7 @@ function BoardPage() {
                     setTitle(e.target.value);
                     setDirty(true);
                   }}
-                  placeholder="白板标题"
+                  placeholder={UI_TEXT.BOARD_TITLE}
                   style={{ width: 320 }}
                 />
                 <Tag>id: {id}</Tag>
@@ -851,41 +1172,78 @@ function BoardPage() {
                   type={tool === TOOLS.SELECT ? 'primary' : 'default'}
                   onClick={() => setTool(TOOLS.SELECT)}
                 >
-                  选择
+                  {UI_TEXT.SELECT}
                 </Button>
                 <Button
                   type={tool === TOOLS.PENCIL ? 'primary' : 'default'}
                   onClick={() => setTool(TOOLS.PENCIL)}
                 >
-                  画笔
+                  {UI_TEXT.PENCIL}
                 </Button>
                 <Button
                   type={tool === TOOLS.RECT ? 'primary' : 'default'}
                   onClick={() => setTool(TOOLS.RECT)}
                 >
-                  矩形
+                  {UI_TEXT.RECT}
                 </Button>
                 <Button
                   type={tool === TOOLS.CIRCLE ? 'primary' : 'default'}
                   onClick={() => setTool(TOOLS.CIRCLE)}
                 >
-                  圆形
+                  {UI_TEXT.CIRCLE}
                 </Button>
                 <Button
                   type={tool === TOOLS.ARROW ? 'primary' : 'default'}
                   onClick={() => setTool(TOOLS.ARROW)}
                 >
-                  箭头
+                  {UI_TEXT.ARROW}
                 </Button>
                 <Button
                   type={tool === TOOLS.TEXT ? 'primary' : 'default'}
                   onClick={() => setTool(TOOLS.TEXT)}
                 >
-                  文字
+                  {UI_TEXT.TEXT}
                 </Button>
               </Space>
 
-              {/* 预览提示条 */}
+              <Space wrap align="center">
+                <Space size={6} align="center">
+                  <Typography.Text type="secondary">{UI_TEXT.STROKE}</Typography.Text>
+                  <ColorPicker
+                    value={strokeColor}
+                    onChange={(_, hex) => setStrokeColor(hex)}
+                    size="small"
+                  />
+                </Space>
+                <Space size={6} align="center">
+                  <Typography.Text type="secondary">{UI_TEXT.FILL}</Typography.Text>
+                  <Button
+                    size="small"
+                    type={fillEnabled ? 'primary' : 'default'}
+                    onClick={() => setFillEnabled((v) => !v)}
+                  >
+                    {fillEnabled ? UI_TEXT.ON : UI_TEXT.OFF}
+                  </Button>
+                  <ColorPicker
+                    value={fillColor}
+                    disabled={!fillEnabled}
+                    onChange={(color) => setFillColor(color.toRgbString())}
+                    size="small"
+                  />
+                </Space>
+                <Space size={6} align="center" style={{ width: 220 }}>
+                  <Typography.Text type="secondary">{UI_TEXT.STROKE_WIDTH}</Typography.Text>
+                  <Slider
+                    min={1}
+                    max={20}
+                    value={strokeWidth}
+                    onChange={(v) => setStrokeWidth(v)}
+                    style={{ width: 140 }}
+                  />
+                </Space>
+              </Space>
+
+              {/* Preview banner */}
               {previewingVersion && (
                 <div
                   style={{
@@ -900,13 +1258,13 @@ function BoardPage() {
                 >
                   <Space>
                     <ClockCircleOutlined style={{ color: '#fa8c16' }} />
-                    <Typography.Text strong>正在预览历史版本</Typography.Text>
+                    <Typography.Text strong>{UI_TEXT.PREVIEW_BANNER}</Typography.Text>
                     <Typography.Text type="secondary">
                       {formatTime(previewingVersion.created_at)}
                     </Typography.Text>
                   </Space>
                   <Button size="small" onClick={handleExitPreview}>
-                    退出预览
+                    {UI_TEXT.EXIT_PREVIEW}
                   </Button>
                 </div>
               )}
@@ -973,7 +1331,7 @@ function BoardPage() {
                       zIndex: 10,
                     }}
                   >
-                    <Typography.Text>加载中...</Typography.Text>
+                    <Typography.Text>{UI_TEXT.LOADING}</Typography.Text>
                   </div>
                 ) : null}
               </div>
@@ -981,18 +1339,18 @@ function BoardPage() {
           </Card>
         </div>
 
-        {/* 右侧版本历史侧边栏 */}
+        {/* Version sidebar */}
         {sidebarOpen && (
           <Card
             title={
               <Space>
                 <HistoryOutlined />
-                <span>版本历史</span>
+                <span>{UI_TEXT.VERSION_HISTORY}</span>
               </Space>
             }
             extra={
               <Space>
-                <Tooltip title="手动保存当前版本">
+                <Tooltip title={UI_TEXT.TOOLTIP_SAVE_VERSION}>
                   <Button
                     type="primary"
                     size="small"
@@ -1000,7 +1358,7 @@ function BoardPage() {
                     loading={savingManual}
                     onClick={handleManualSave}
                   >
-                    保存版本
+                    {UI_TEXT.SAVE_VERSION}
                   </Button>
                 </Tooltip>
                 <Button type="text" icon={<CloseOutlined />} onClick={() => setSidebarOpen(false)} />
@@ -1010,7 +1368,7 @@ function BoardPage() {
             styles={{ body: { flex: 1, overflowY: 'auto', padding: 12 } }}
           >
             {versions.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无版本快照" />
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={UI_TEXT.NO_VERSIONS} />
             ) : (
               <List
                 size="small"
@@ -1035,7 +1393,7 @@ function BoardPage() {
                       }}
                       onClick={() => handlePreviewVersion(item)}
                       actions={[
-                        <Tooltip title="预览" key="preview">
+                        <Tooltip title={UI_TEXT.TOOLTIP_PREVIEW} key="preview">
                           <Button
                             type="text"
                             size="small"
@@ -1047,7 +1405,7 @@ function BoardPage() {
                           />
                         </Tooltip>,
                         board?.owner_id === user?.user_id ? (
-                          <Tooltip title="恢复到此版本" key="restore">
+                          <Tooltip title={UI_TEXT.TOOLTIP_RESTORE} key="restore">
                             <Button
                               type="text"
                               size="small"
@@ -1064,20 +1422,20 @@ function BoardPage() {
                       <List.Item.Meta
                         title={
                           <Space>
-                            <span>版本 #{num}</span>
+                            <span>{UI_TEXT.VERSION} #{num}</span>
                             {isManual ? (
                               <Tag
                                 color="blue"
                                 style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}
                               >
-                                手动
+                                {UI_TEXT.MANUAL}
                               </Tag>
                             ) : (
                               <Tag
                                 color="orange"
                                 style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}
                               >
-                                自动
+                                {UI_TEXT.AUTO}
                               </Tag>
                             )}
                           </Space>
@@ -1087,7 +1445,7 @@ function BoardPage() {
                             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                               {formatTime(item.created_at)}
                             </Typography.Text>
-                            {label && label !== '手动保存' && (
+                            {label && label !== UI_TEXT.MANUAL_SAVE_DEFAULT && (
                               <Typography.Text
                                 style={{ fontSize: 12, color: '#1890ff' }}
                               >

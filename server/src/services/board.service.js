@@ -7,7 +7,7 @@ async function getBoardRole({ userId, itemId }) {
     select: { item_id: true, owner_id: true },
   });
   if (!item) {
-    throw new AppError(404, AppError.CODES.NOT_FOUND, 'ç™½æ¿ä¸å­˜åœ¨');
+    throw new AppError(404, AppError.CODES.NOT_FOUND, '°×°å²»´æÔÚ');
   }
   if (item.owner_id === userId) return { role: 'owner', item };
 
@@ -22,21 +22,21 @@ async function getBoardRole({ userId, itemId }) {
 async function assertBoardReadable({ userId, itemId }) {
   const { role } = await getBoardRole({ userId, itemId });
   if (!role) {
-    throw new AppError(403, AppError.CODES.FORBIDDEN, 'æ— æƒé™è®¿é—®è¯¥ç™½æ¿');
+    throw new AppError(403, AppError.CODES.FORBIDDEN, 'ÎŞÈ¨ÏŞ·ÃÎÊ¸Ã°×°å');
   }
 }
 
 async function assertBoardWritable({ userId, itemId }) {
   const { role } = await getBoardRole({ userId, itemId });
   if (role !== 'owner' && role !== 'editor') {
-    throw new AppError(403, AppError.CODES.FORBIDDEN, 'æ— æƒé™ç¼–è¾‘è¯¥ç™½æ¿');
+    throw new AppError(403, AppError.CODES.FORBIDDEN, 'ÎŞÈ¨ÏŞ±à¼­¸Ã°×°å');
   }
 }
 
 async function assertBoardOwner({ userId, itemId }) {
   const { role } = await getBoardRole({ userId, itemId });
   if (role !== 'owner') {
-    throw new AppError(403, AppError.CODES.FORBIDDEN, 'ä»…ç™½æ¿æ‰€æœ‰è€…å¯æ‰§è¡Œè¯¥æ“ä½œ');
+    throw new AppError(403, AppError.CODES.FORBIDDEN, '½ö°×°åËùÓĞÕß¿ÉÖ´ĞĞ¸Ã²Ù×÷');
   }
 }
 
@@ -65,7 +65,7 @@ async function createBoard(userId, { title }) {
     data: {
       type: 'Whiteboard',
       owner_id: userId,
-      title: (title || 'æœªå‘½åç™½æ¿').slice(0, 256),
+      title: (title || 'Î´ÃüÃû°×°å').slice(0, 256),
       content_data: { canvas: null },
       permissions: {
         create: [{ user_id: userId, role: 'owner' }],
@@ -99,7 +99,7 @@ async function getBoard(userId, itemId) {
     },
   });
   if (!board || board.type !== 'Whiteboard') {
-    throw new AppError(404, AppError.CODES.NOT_FOUND, 'ç™½æ¿ä¸å­˜åœ¨');
+    throw new AppError(404, AppError.CODES.NOT_FOUND, '°×°å²»´æÔÚ');
   }
   return board;
 }
@@ -110,7 +110,7 @@ async function updateBoard(userId, itemId, { title, content_data }) {
   if (typeof title === 'string') data.title = title.slice(0, 256);
   if (typeof content_data !== 'undefined') data.content_data = content_data;
   if (!Object.keys(data).length) {
-    throw new AppError(400, AppError.CODES.BAD_REQUEST, 'ç¼ºå°‘å¯æ›´æ–°å­—æ®µ');
+    throw new AppError(400, AppError.CODES.BAD_REQUEST, 'È±ÉÙ¿É¸üĞÂ×Ö¶Î');
   }
 
   const updated = await prisma.collaborativeItem.update({
@@ -127,7 +127,7 @@ async function updateBoard(userId, itemId, { title, content_data }) {
     },
   });
   if (updated.type !== 'Whiteboard') {
-    throw new AppError(404, AppError.CODES.NOT_FOUND, 'ç™½æ¿ä¸å­˜åœ¨');
+    throw new AppError(404, AppError.CODES.NOT_FOUND, '°×°å²»´æÔÚ');
   }
   return updated;
 }
@@ -172,7 +172,7 @@ async function createBoardVersion(userId, itemId, { content_snapshot }) {
     },
   });
   
-  // åªä¿ç•™æœ€è¿‘50æ¡ï¼Œåˆ é™¤æ—§çš„
+  // Ö»±£Áô×î½ü50Ìõ£¬É¾³ı¾ÉµÄ
   const oldVersions = await prisma.version.findMany({
     where: { item_id: itemId },
     orderBy: { created_at: 'desc' },
@@ -188,16 +188,16 @@ async function createBoardVersion(userId, itemId, { content_snapshot }) {
   return toVersionDto(version);
 }
 
-/** POST /api/boards/:id/versions/:versionId/restore â€” Owner å¯å›æ»š */
+/** POST /api/boards/:id/versions/:versionId/restore ¡ª Owner ¿É»Ø¹ö */
 async function restoreBoardVersion(userId, itemId, versionId) {
-  await assertBoardOwner({ userId, itemId });   // ä»… Owner å¯å›æ»š
+  await assertBoardOwner({ userId, itemId });   // ½ö Owner ¿É»Ø¹ö
   const version = await prisma.version.findUnique({ where: { version_id: versionId } });
   if (!version || version.item_id !== itemId) {
-    throw new AppError(404, AppError.CODES.NOT_FOUND, 'ç‰ˆæœ¬å¿«ç…§ä¸å­˜åœ¨');
+    throw new AppError(404, AppError.CODES.NOT_FOUND, '°æ±¾¿ìÕÕ²»´æÔÚ');
   }
   const snapshot = version.content_snapshot;
   if (!snapshot?.canvas) {
-    throw new AppError(400, AppError.CODES.BAD_REQUEST, 'è¯¥ç‰ˆæœ¬æ²¡æœ‰å¯æ¢å¤çš„å†…å®¹å¿«ç…§');
+    throw new AppError(400, AppError.CODES.BAD_REQUEST, '¸Ã°æ±¾Ã»ÓĞ¿É»Ö¸´µÄÄÚÈİ¿ìÕÕ');
   }
   const updated = await prisma.collaborativeItem.update({
     where: { item_id: itemId },
@@ -210,6 +210,9 @@ async function restoreBoardVersion(userId, itemId, versionId) {
 }
 
 module.exports = {
+  assertBoardReadable,
+  assertBoardWritable,
+  assertBoardOwner,
   listBoards,
   createBoard,
   getBoard,
