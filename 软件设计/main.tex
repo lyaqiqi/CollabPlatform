@@ -171,19 +171,105 @@ numberstyle=\tiny\ttfamily
 
 \subsection{项目背景与目标}
 
+CollabPlatform 是一个面向课程实践的多人实时协作平台，目标是为小组协作提供两类核心工作空间：\textbf{共享白板}与\textbf{共享文档}。在典型的团队场景中，白板用于头脑风暴、流程梳理与原型草图；文档用于需求/方案/会议纪要的沉淀与多人联动编辑。系统采用前后端分离的 Web 架构，通过 HTTP 提供数据管理接口，通过 WebSocket 提供实时协作通道。
+
+本项目的总体目标如下：
+\begin{enumerate}[label=(\arabic*)]
+  \item \textbf{协作一致性：}多人同时编辑时尽量避免冲突覆盖，保证内容可合并、可回滚。
+  \item \textbf{可用性与易上手：}浏览器即可使用，界面统一（基于 antd），交互直观（工具栏、版本侧边栏、在线状态提示）。
+  \item \textbf{工程化与可维护：}后端采用 ``routes $\rightarrow$ controllers $\rightarrow$ services'' 分层；前端采用模块化目录与统一封装（request/useSocket/authStore），便于多人并行开发与后续迭代。
+  \item \textbf{安全与权限：}统一鉴权（JWT），并在业务层与 Socket 层对访问权限进行校验（Owner/Editor/Viewer）。
+\end{enumerate}
+
 \subsection{系统功能概述}
+
+系统从用户视角提供以下主要功能：
+\begin{enumerate}[label=(\arabic*)]
+  \item \textbf{用户认证：}注册、登录、刷新 token、获取当前用户信息。
+  \item \textbf{协作项目：}以 CollaborativeItem 为统一载体，支持 Whiteboard 与 Document 两种类型（同一套权限模型与版本/评论扩展能力）。
+  \item \textbf{共享白板：}基于 Fabric.js 的画布编辑（选择、手绘、矩形/圆形/箭头/文字、拖拽缩放、删除、导出 PNG），支持多人协作与多人光标显示；并支持保存当前状态与版本快照、版本回滚。
+  \item \textbf{共享文档：}基于 TipTap 的富文本编辑（标题、列表、代码块、表格、图片、链接等），基于 Yjs 的 CRDT 协作编辑与协作光标；支持评论/回复、版本快照与回滚、导出 Markdown/HTML 等扩展能力。
+  \item \textbf{实时协作基础设施：}统一的 Socket 连接管理、房间管理（item:<itemId>）、广播与断线重连状态提示。
+\end{enumerate}
+
+系统采用统一响应格式（\texttt{\{code,data,message\}}）与错误码约定（40001/40101/40301/40401/40901/50000），前端通过 axios 拦截器统一解包与错误提示，减少业务层重复代码。
 
 \subsection{系统总体架构设计}
 
 \subsubsection{架构风格说明}
 
+系统整体采用 \textbf{B/S（Browser/Server）} 架构与 \textbf{前后端分离} 模式，前端为单页应用（SPA），后端提供 RESTful 风格的 HTTP API 与 Socket.io 实时通道。架构中同时存在两条数据通路：
+\begin{enumerate}[label=(\arabic*)]
+  \item \textbf{HTTP（请求-响应）：}用于登录注册、项目数据增删改查、版本/评论等需要落库的操作，强调幂等与可追踪。
+  \item \textbf{WebSocket（长连接）：}用于实时协作同步（文档/白板的增量更新、协作光标/在线状态等），强调低延迟与广播效率。
+\end{enumerate}
+
+后端内部采用分层架构以提升可维护性与可测试性：
+\begin{center}
+\begin{tabular}{c}
+routes（声明路径）$\rightarrow$ controllers（处理 req/res）$\rightarrow$ services（业务逻辑）$\rightarrow$ Prisma（数据访问）$\rightarrow$ PostgreSQL
+\end{tabular}
+\end{center}
+
+在实时协作层面，文档协作使用 \textbf{Yjs（CRDT）} 实现无冲突合并；白板协作采用 ``Fabric 事件 $\leftrightarrow$ Yjs 数据结构'' 的双向绑定，将画布元素抽象为可合并的数据更新，从而在多人并发操作时避免简单 ``整页快照覆盖'' 带来的冲突。
+
 \subsubsection{系统整体结构图}
+
+\begin{verbatim}
+Browser (React + Vite)
+  |
+  |-- HTTP (axios) ------------------> Express /api/*
+  |                                     |
+  |                                     |-- routes -> controllers -> services
+  |                                     |-- Prisma -> PostgreSQL
+  |
+  |-- WebSocket (socket.io-client) ---> Socket.io Server
+                                        |
+                                        |-- 连接鉴权（JWT）
+                                        |-- 房间：item:<itemId>
+                                        |-- 广播：broadcastToRoom（排除发送者）
+                                        |-- 协作事件：doc:* / board:* / cursor
+\end{verbatim}
+
+其中，前端通过 \texttt{request.js} 统一封装 HTTP 请求（自动附带 accessToken、统一错误处理）；通过 \texttt{useSocket} 统一封装 WebSocket（单例连接、自动重连、连接状态枚举、join/leave/ping 等通用方法）。
 
 \subsection{技术选型说明}
 
 \subsubsection{开发语言、框架、数据库与中间件}
 
+\textbf{前端：}
+\begin{itemize}
+  \item React 18 + Vite：构建单页应用与工程化开发。
+  \item react-router-dom v6：路由与受保护页面跳转（ProtectedRoute）。
+  \item antd：统一 UI 组件库与交互规范。
+  \item Zustand：轻量状态管理（登录态持久化到 localStorage）。
+  \item axios：HTTP 客户端与拦截器封装。
+  \item socket.io-client：实时连接与自动重连。
+  \item TipTap（ProseMirror）：文档富文本编辑器。
+  \item Yjs + y-protocols + y-prosemirror：CRDT 协作内核与 Awareness（协作光标/在线用户）。
+  \item Fabric.js：白板画布与图形对象模型。
+\end{itemize}
+
+\textbf{后端：}
+\begin{itemize}
+  \item Node.js + Express：HTTP API 服务与中间件体系。
+  \item Prisma：ORM 与数据库模型管理。
+  \item PostgreSQL：关系型存储（可部署于 Supabase）。
+  \item Socket.io：实时通信与房间广播。
+  \item jsonwebtoken + bcrypt：鉴权与密码哈希。
+  \item Redis（可选）：缓存/限流/计数等能力，未配置时自动降级。
+  \item morgan：请求日志。
+\end{itemize}
+
 \subsubsection{选型理由分析}
+
+\begin{enumerate}[label=(\arabic*)]
+  \item \textbf{协作一致性：}Yjs 作为成熟的 CRDT 方案，能够在弱网络与并发输入下实现无冲突合并；Awareness 机制可自然承载光标/在线信息同步。
+  \item \textbf{开发效率：}React + Vite 具备快速热更新与良好生态；antd 提供覆盖全面的组件，减少重复造轮子。
+  \item \textbf{可维护性：}Express 的中间件模式与 ``routes/controllers/services'' 分层清晰；Prisma 通过 schema 管理数据模型与迁移，降低手写 SQL 的出错概率。
+  \item \textbf{实时与可靠：}Socket.io 兼容性好且内置重连机制，适合课程项目的多环境部署；房间广播可将协作范围限制在单项目内，降低不必要的网络开销。
+  \item \textbf{可扩展：}CollaborativeItem 抽象统一了 ``白板/文档'' 两类资源，后续新增协作类型（如表格、脑图）只需扩展 type 与对应模块即可复用权限、版本、评论等基础能力。
+\end{enumerate}
 
 % ================================================================
 \clearpage
@@ -225,12 +311,46 @@ numberstyle=\tiny\ttfamily
 
 \subsection{安全性设计}
 
+\begin{enumerate}[label=(\arabic*)]
+  \item \textbf{认证与会话：}系统使用 JWT（accessToken + refreshToken）进行无状态认证；前端在请求拦截器中自动附带 \texttt{Authorization: Bearer <token>}，后端在 \texttt{authMiddleware} 中校验并将用户标识挂载到 \texttt{req.user}。
+  \item \textbf{密码安全：}用户密码在服务端使用 bcrypt 进行哈希存储，不以明文形式落库。
+  \item \textbf{权限控制：}采用 Owner/Editor/Viewer 三级权限模型。HTTP API 在 service 层做读写权限校验；Socket 层在 join 与协作事件处理中进行权限校验，避免绕过 HTTP 直接通过 WebSocket 读写数据。
+  \item \textbf{跨域与最小暴露：}后端 CORS 仅放行配置的前端域名（CLIENT\_ORIGIN），并设置 \texttt{credentials}；统一错误码返回，避免泄露内部堆栈信息（生产环境不输出详细错误）。
+\end{enumerate}
+
+在生产部署时，建议进一步补充：HTTPS/WSS、访问频率限制（可基于 Redis 计数）、更严格的输入校验与审计日志等。
+
 \subsection{性能优化设计}
+
+\begin{enumerate}[label=(\arabic*)]
+  \item \textbf{网络层：}实时协作使用房间广播，避免全局广播；对光标等高频事件采用节流；对持久化保存采用防抖，减少频繁落库。
+  \item \textbf{协作层：}基于 Yjs 的增量 update 同步，仅传输差异数据，降低带宽占用并提升多人并发下的合并效率。
+  \item \textbf{数据层：}Prisma 查询使用字段选择（select）与必要的索引/约束，降低无效字段读取；版本快照采用 ``只保留最近 N 条'' 的策略避免表无限增长。
+  \item \textbf{前端渲染：}将连接状态、加载状态、侧边栏等 UI 状态与业务状态分离，减少不必要的重渲染；大型模块可按路由拆分实现按需加载（后续优化方向）。
+\end{enumerate}
 
 \subsection{可扩展性设计}
 
+\begin{enumerate}[label=(\arabic*)]
+  \item \textbf{模块化目录与职责边界：}前端按 api/components/pages/hooks/collab 分层，后端按 routes/controllers/services 分层；新增功能通常只需要在对应层新增文件并在路由入口注册。
+  \item \textbf{统一协作模型：}CollaborativeItem 作为统一资源抽象，权限（Permission）、版本（Version）、评论（Comment）为通用扩展点，新协作类型可复用这些能力。
+  \item \textbf{统一协议与常量：}错误码与 Socket 事件名集中定义，减少多人协作时的命名分歧与联调成本。
+\end{enumerate}
+
 \subsection{异常处理机制}
 
+\begin{enumerate}[label=(\arabic*)]
+  \item \textbf{后端：}业务层通过抛出 \texttt{AppError(httpStatus, code, message)} 表达可预期错误；全局错误中间件统一捕获并按标准格式返回。对未知错误返回 50000，开发环境可输出日志用于定位。
+  \item \textbf{前端：}axios 响应拦截器统一处理业务错误码；token 失效（40101）时自动清理登录态并跳转登录页；其余错误通过 Toast 统一提示。
+  \item \textbf{实时通道：}Socket 连接层使用 token 鉴权；在权限不足或参数错误时通过 \texttt{doc:error}/\texttt{board:error} 等事件回传，避免静默失败。
+\end{enumerate}
+
 \subsection{日志与监控方案}
+
+\begin{enumerate}[label=(\arabic*)]
+  \item \textbf{请求日志：}后端使用 morgan 记录请求方法、路径、状态码与耗时，为性能分析与问题回溯提供依据。
+  \item \textbf{错误日志：}全局错误处理中间件在开发环境输出堆栈，便于快速定位；生产环境应接入结构化日志（如 Winston/Pino）并输出到文件或日志平台。
+  \item \textbf{运行监控（建议）：}可进一步加入进程级健康检查、数据库连接监控、Socket 在线连接数统计，以及 Prometheus + Grafana 等指标体系，便于上线后观察稳定性与容量。
+\end{enumerate}
 
 \end{document}
