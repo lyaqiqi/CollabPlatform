@@ -83,7 +83,7 @@
 \usepackage{xcolor}
 \usepackage{listings}
 \usepackage{fontspec}
-\setmonofont[Mapping={}]{Consolas}
+\setmonofont[Mapping={}]{Courier New}
 \definecolor{mygreen}{rgb}{0,0.6,0}
 \definecolor{mygray}{rgb}{0.5,0.5,0.5}
 \definecolor{mymauve}{rgb}{0.58,0,0.82}
@@ -279,11 +279,308 @@ Browser (React + Vite)
 
 \subsubsection{模块职责说明}
 
+系统按照前后端分离的结构，将功能划分为若干具有清晰职责边界的模块，模块之间通过明确定义的接口交互。
+
+\textbf{后端模块划分（\texttt{server/src/}）：}
+
+\begin{enumerate}[label=(\arabic*)]
+  \item \textbf{配置层（\texttt{config/}）：}负责运行环境初始化，是整个服务启动的前置依赖。
+  \begin{itemize}
+    \item \texttt{env.js}：加载 \texttt{.env}，校验 \texttt{DATABASE\_URL}、\texttt{JWT\_SECRET} 等关键变量；缺失时直接退出进程，防止以错误配置启动。
+    \item \texttt{prisma.js}：导出 PrismaClient 单例，开发模式下挂到 \texttt{global}，避免热重载时重复建立数据库连接。
+    \item \texttt{redis.js}：连接 Redis；若 \texttt{REDIS\_URL} 为空或连接失败，导出空操作 Proxy 进行容错降级，业务层无需感知 Redis 是否可用。
+  \end{itemize}
+
+  \item \textbf{工具层（\texttt{utils/}）：}提供全局通用能力，供各层调用。
+  \begin{itemize}
+    \item \texttt{AppError.js}：自定义错误类，携带 \texttt{httpStatus}、业务 \texttt{code}、\texttt{message} 三个字段；业务层 \texttt{throw} 后由错误中间件统一捕获并格式化返回。
+    \item \texttt{response.js}：封装 \texttt{success(res, data)} 与 \texttt{fail(res, status, code, msg)} 两个函数，所有接口必须通过它们返回，保证响应格式一致。
+    \item \texttt{jwt.js}：封装 \texttt{signAccessToken}、\texttt{signRefreshToken}、\texttt{verifyToken}；有效期通过环境变量 \texttt{JWT\_EXPIRES\_IN} / \texttt{JWT\_REFRESH\_EXPIRES\_IN} 配置；校验失败直接抛 \texttt{AppError(401)}。
+  \end{itemize}
+
+  \item \textbf{中间件层（\texttt{middlewares/}）：}处理横切关注点，以管道形式插入 Express 请求链路。
+  \begin{itemize}
+    \item \texttt{requestLogger.js}：基于 morgan，记录每个请求的方法、路径、状态码与耗时。
+    \item \texttt{auth.js}：JWT 鉴权中间件，从 \texttt{Authorization: Bearer <token>} 头提取并校验 token，成功后将 \texttt{\{ userId \}} 挂载到 \texttt{req.user}，供控制器读取。
+    \item \texttt{errorHandler.js}：全局错误处理，放在所有路由之后；捕获 \texttt{AppError} 按其字段格式化返回，未知错误统一返回 50000，开发环境输出堆栈信息。
+  \end{itemize}
+
+  \item \textbf{路由层（\texttt{routes/}）：}只负责声明 URL 路径与 HTTP 方法，将请求转发给对应 controller，本身不含任何业务逻辑。包含 \texttt{auth.routes.js}（认证）、\texttt{boards.routes.js}（白板）、\texttt{doc.routes.js}（文档）、\texttt{items.routes.js}（项目管理）、\texttt{health.routes.js}（健康检查），统一在 \texttt{routes/index.js} 挂载到 \texttt{/api} 前缀。
+
+  \item \textbf{控制器层（\texttt{controllers/}）：}负责处理 HTTP 请求与响应，从 \texttt{req} 中提取参数、调用 service，再通过 \texttt{response} 工具返回结果；不包含业务逻辑判断。包含 \texttt{auth.controller.js}、\texttt{board.controller.js}、\texttt{doc.controller.js}、\texttt{item.controller.js}。
+
+  \item \textbf{业务层（\texttt{services/}）：}核心业务逻辑所在层，只负责业务计算、数据库操作与权限校验，不感知 HTTP，可被多个 controller 复用，也方便编写单元测试。
+  \begin{itemize}
+    \item \texttt{auth.service.js}：注册（字段校验、唯一性检查、bcrypt 哈希）、登录（密码比对、状态检查、token 签发）、token 刷新。
+    \item \texttt{board.service.js}：白板 CRUD，提供 \texttt{assertBoardReadable} / \texttt{assertBoardWritable} / \texttt{assertBoardOwner} 三个权限断言函数，以及版本快照管理（保留最近 50 条）。
+    \item \texttt{doc.service.js}：文档 CRUD，提供 \texttt{assertDocumentAccess(itemId, userId, minRole)} 权限断言，以及评论（含回复树与锚点定位）、版本快照与回滚、成员邀请与权限调整的完整业务逻辑。
+    \item \texttt{item.service.js}：协作项目的通用管理操作，支持按类型筛选列表与权限更新。
+  \end{itemize}
+
+  \item \textbf{Socket 层（\texttt{socket/}）：}实时协作通信层，与 HTTP 层并行工作。
+  \begin{itemize}
+    \item \texttt{index.js}：初始化 Socket.io 并与 HTTP Server 绑定；在 \texttt{io.use()} 中间件中对握手 token 进行 JWT 校验，校验通过后将 \texttt{userId} 挂载到 \texttt{socket.data}；导出 \texttt{joinRoom}、\texttt{leaveRoom}、\texttt{broadcastToRoom}（排除发送者）三个通用方法。
+    \item \texttt{handlers.js}：为每条连接注册业务事件，包括房间加入/离开（查询 item 类型后分发到白板或文档权限校验）、文档协作事件（\texttt{doc:operation} / \texttt{doc:cursor} / \texttt{doc:title-changed} / \texttt{doc:sidebar-changed}）、白板协作事件（\texttt{board:sync} / \texttt{board:draw} / \texttt{board:cursor}）。每个写操作事件均在广播前调用对应 service 的权限断言函数。
+  \end{itemize}
+\end{enumerate}
+
+\textbf{前端模块划分（\texttt{client/src/}）：}
+
+\begin{enumerate}[label=(\arabic*)]
+  \item \textbf{HTTP 封装（\texttt{api/}）：}基于 axios 创建实例，请求拦截器自动注入 \texttt{Authorization} 头；响应拦截器统一解包（\texttt{code === 0} 直接返回 \texttt{data}）、错误提示（Toast）与自动登出（\texttt{code === 40101}）。按业务领域进一步封装：\texttt{auth.api.js}（注册/登录/刷新）、\texttt{board.api.js}（白板 CRUD）、\texttt{doc.api.js}（文档 CRUD/评论/版本/成员）。
+  \item \textbf{WebSocket 封装（\texttt{socket/useSocket.js}）：}单例模式封装 socket.io-client，保证多组件共享同一连接；暴露 \texttt{connect}、\texttt{disconnect}、\texttt{joinRoom}、\texttt{leaveRoom}、\texttt{emit}、\texttt{on}、\texttt{off}、\texttt{ping} 等方法；维护 \texttt{status} 枚举（\texttt{disconnected / connecting / connected / reconnecting}），供 \texttt{App.jsx} 渲染全局连接状态横幅。
+  \item \textbf{协作层（\texttt{collab/}）：}文档 CRDT 协作内核，不依赖第三方协作服务器。\texttt{socketIoYjsProvider.js} 将 Yjs 增量 update 与 Awareness 编码为 base64 后经 \texttt{doc:operation} / \texttt{doc:cursor} 事件收发；\texttt{yjsUtils.js} 提供 Yjs 状态与 base64 的互转以及历史快照注水工具；\texttt{userColor.js} 根据 userId 哈希派生协作光标颜色。
+  \item \textbf{状态管理（\texttt{store/authStore.js}）：}Zustand store，包含 \texttt{user}、\texttt{accessToken}、\texttt{refreshToken} 三个字段及 \texttt{setAuth}（同步写 localStorage）、\texttt{logout}（清空 state 与 localStorage）、\texttt{loadFromStorage}（页面刷新后恢复登录态，在 \texttt{App.jsx} 初始化时同步调用，无竞态问题）三个方法。
+  \item \textbf{路由（\texttt{router/}）：}react-router-dom v6 配置五条路由，\texttt{ProtectedRoute} 检查 \texttt{accessToken}，未登录时重定向至 \texttt{/login}。
+  \item \textbf{页面（\texttt{pages/}）：}各路由对应的顶层页面组件：\texttt{LoginPage}（登录）、\texttt{RegisterPage}（注册）、\texttt{HomePage}（协作项目列表）、\texttt{BoardPage}（白板编辑，基于 Fabric.js）、\texttt{DocPage}（文档编辑，集成 TipTap + Yjs）。
+  \item \textbf{组件（\texttt{components/}）：}可复用 UI 组件。公共组件：\texttt{Navbar}（顶部导航栏）、\texttt{Loading}（全屏加载）、\texttt{Toast}（全局消息提示）、\texttt{ConfirmDialog}（危险操作确认弹窗）。文档专属：\texttt{DocEditor.jsx}（TipTap 富文本编辑器）、\texttt{DocCollabSidebar.jsx}（评论/版本/成员侧边栏）及编辑器浮层（气泡菜单、斜杠命令菜单、表格操作菜单）。
+  \item \textbf{自定义 Hook（\texttt{hooks/}）：}\texttt{useDocCollaboration.js} 负责创建 \texttt{Y.Doc}、\texttt{SocketIoYjsProvider}、\texttt{Y.UndoManager}，加入协作房间，并从 Awareness 派生去重后的在线用户列表，是文档协作功能的核心入口。
+\end{enumerate}
+
 \subsubsection{模块之间的调用关系}
+
+\textbf{后端调用链路：}
+
+\begin{verbatim}
+HTTP 请求
+  └─ Express App（app.js）
+       └─ 中间件链：requestLogger → CORS → auth（受保护路由）
+            └─ routes/（声明路径与 HTTP 方法）
+                 └─ controllers/（提取 req 参数，调用 service，返回响应）
+                      └─ services/（业务逻辑，调用 Prisma 查库，抛 AppError）
+                           └─ Prisma → PostgreSQL
+
+WebSocket 连接
+  └─ Socket.io 初始化（socket/index.js）
+       └─ io.use()：JWT 连接鉴权，挂 socket.data.userId
+            └─ handlers.js（为每条连接注册业务事件）
+                 ├─ 权限校验：调用 docService.assertDocumentAccess
+                 │             / boardService.assertBoardReadable
+                 └─ broadcastToRoom（排除发送者，广播给房间其他成员）
+\end{verbatim}
+
+\textbf{前端调用链路：}
+
+\begin{verbatim}
+App.jsx
+  ├─ authStore.loadFromStorage()：同步恢复登录态
+  ├─ useSocket：监听连接状态，渲染全局横幅
+  └─ router/index.jsx
+       ├─ LoginPage / RegisterPage → api/auth.api.js（HTTP）
+       └─ ProtectedRoute（检查 accessToken）
+            ├─ HomePage → api/board.api.js / api/doc.api.js（HTTP）
+            ├─ BoardPage
+            │    ├─ api/board.api.js（初始加载/保存）
+            │    ├─ useSocket（joinRoom / emit board:sync / on board:sync）
+            │    └─ Fabric.js 画布渲染与事件监听
+            └─ DocPage
+                 ├─ api/doc.api.js（初始加载/保存/侧边栏）
+                 ├─ useDocCollaboration
+                 │    ├─ 创建 Y.Doc + SocketIoYjsProvider
+                 │    │    └─ collab/socketIoYjsProvider.js → useSocket
+                 │    └─ 派生在线用户列表
+                 └─ DocEditor（TipTap + Collaboration/CollaborationCursor 扩展）
+\end{verbatim}
 
 \subsection{核心业务流程设计}
 
+\textbf{（1）用户注册与登录流程}
+
+用户注册时，前端向 \texttt{POST /api/auth/register} 提交 \texttt{username}、\texttt{email}、\texttt{password}；服务端依次进行格式校验（邮箱正则、用户名长度不超 32 字符、密码不少于 8 位）、唯一性校验（查库判断邮箱或用户名是否已注册），通过后用 bcrypt（salt rounds = 10）对密码进行哈希存储，将用户记录写入 \texttt{User} 表，返回 201 与用户信息（不含密码哈希）。
+
+用户登录时，前端向 \texttt{POST /api/auth/login} 提交邮箱与密码；服务端按邮箱查找用户，用 \texttt{bcrypt.compare} 验证密码哈希，检查账号是否被封禁，全部通过后签发 \texttt{accessToken} 与 \texttt{refreshToken}（有效期均通过环境变量配置）并返回。前端通过 \texttt{authStore.setAuth()} 将登录态持久化到 localStorage，后续每次 HTTP 请求由 axios 拦截器自动附带 \texttt{Authorization: Bearer <accessToken>}。
+
+当 accessToken 过期时，axios 响应拦截器捕获错误码 40101，调用 \texttt{POST /api/auth/refresh} 用 refreshToken 换取新 accessToken；若 refreshToken 也已失效，则自动清理登录态并跳转至 \texttt{/login}。
+
+\textbf{（2）文档实时协作流程}
+
+\begin{enumerate}[label=\arabic*.]
+  \item 用户打开文档页时，前端先通过 \texttt{GET /api/docs/:id} 拉取文档详情，获取 \texttt{content\_data.yjs\_state}（base64 编码的 Yjs 全量状态快照）。
+  \item \texttt{useDocCollaboration} Hook 创建本地 \texttt{Y.Doc} 实例与 \texttt{SocketIoYjsProvider}，并通过 \texttt{useSocket.joinRoom(itemId)} 触发 Socket \texttt{join} 事件加入协作房间（服务端校验 viewer 权限）。
+  \item 用 \texttt{applyPersistedYjsState(ydoc, yjs\_state)} 对文档进行注水（origin 标记为 \texttt{'persisted'}，不触发 Socket 广播），完成文档初始化渲染。
+  \item 此后每次本地编辑触发 \texttt{Y.Doc} 的 \texttt{update} 事件，Provider 将增量 update 编码为 base64 后通过 \texttt{doc:operation} 事件发给服务端；服务端校验 editor 权限后，调用 \texttt{broadcastToRoom} 广播给房间内其他成员（排除发送者）。
+  \item 远端成员收到 \texttt{doc:operation} 事件后，Provider 调用 \texttt{Y.applyUpdate} 将增量无冲突合并到本地 Y.Doc，TipTap 编辑器自动更新视图。
+  \item 协作光标通过 \texttt{doc:cursor} 事件同步 Awareness（包含用户名、颜色、光标位置），所有在线成员的光标实时展示；在线用户列表由 Awareness 状态去重派生（同一用户多标签打开只计一次）。
+  \item 文档内容在两种时机持久化：停止编辑 2s 后防抖自动保存，或页面卸载前兜底保存，均调用 \texttt{PUT /api/docs/:id} 将 \texttt{Y.encodeStateAsUpdate(ydoc)} 的 base64 写入数据库。实时编辑全程不走 HTTP，仅通过 Socket 增量同步。
+\end{enumerate}
+
+\textbf{（3）白板实时协作流程}
+
+\begin{enumerate}[label=\arabic*.]
+  \item 用户进入白板页，前端通过 \texttt{GET /api/boards/:id} 加载已保存的画布 JSON（\texttt{content\_data.canvas}），交由 Fabric.js 初始化渲染。
+  \item 建立 Socket 连接后发送 \texttt{join} 事件加入房间，服务端查询 \texttt{CollaborativeItem} 类型后对白板执行 \texttt{assertBoardReadable} 权限校验。
+  \item 用户在画布上操作（绘制、移动、缩放、删除元素）时，Fabric.js 事件触发，前端将当前完整画布序列化为 JSON，通过 \texttt{board:sync} 事件广播给房间内其他成员，其他成员收到后调用 \texttt{canvas.loadFromJSON} 重新加载画布。
+  \item 用户光标位置通过 \texttt{board:cursor} 事件实时广播（节流处理），其他成员以带用户标识的小圆点展示光标。
+  \item 停止操作 1.2s 后触发防抖自动保存，调用 \texttt{PUT /api/boards/:id} 将画布 JSON 落库，editor 及以上权限方可执行保存操作。
+\end{enumerate}
+
+\textbf{（4）版本快照与回滚流程}
+
+\begin{enumerate}[label=\arabic*.]
+  \item 用户点击「创建版本」，前端调用 \texttt{POST /api/docs/:id/versions}，将当前 Yjs 全量状态（base64）、文档标题与用户自定义标签写入 \texttt{Version} 表；服务端保留最近 50 条版本记录，自动删除更早的快照，并通过 Socket 广播 \texttt{doc:sidebar-changed} 通知其他成员刷新版本列表。
+  \item 用户点击「回滚到此版本」，前端调用 \texttt{POST /api/docs/:id/versions/:versionId/restore}；服务端将该版本的 \texttt{yjs\_state} 覆写到文档 \texttt{content\_data}，然后主动向房间内\textbf{所有}成员（含操作者）广播 \texttt{doc:version-restored} 事件。
+  \item 全员收到 \texttt{doc:version-restored} 后，前端执行页面 reload，重新拉取文档详情并注水，从而完成所有在线成员同步到指定历史版本。
+\end{enumerate}
+
 \subsection{接口设计}
+
+系统提供两类接口：RESTful HTTP 接口（用于 CRUD 与数据持久化）和 Socket.io 事件接口（用于实时协作同步）。
+
+\textbf{统一响应格式：}所有 HTTP 接口均返回如下 JSON 结构，前端 axios 拦截器统一解包与错误处理。
+
+\begin{lstlisting}[language={}]
+// 成功
+{ "code": 0, "data": <任意类型>, "message": "success" }
+// 失败
+{ "code": <错误码>, "data": null, "message": "<错误描述>" }
+\end{lstlisting}
+
+\begin{table}[H]
+  \centering
+  \caption{HTTP 接口错误码约定}
+  \label{tab:errcode}
+  \begin{tabular}{ccp{6cm}}
+    \toprule
+    code  & HTTP 状态码 & 含义 \\
+    \midrule
+    0     & 2xx & 成功 \\
+    40001 & 400 & 请求参数错误（字段缺失/格式不合法） \\
+    40101 & 401 & 未登录 / token 失效 \\
+    40301 & 403 & 无权限操作 \\
+    40401 & 404 & 资源不存在 \\
+    40901 & 409 & 资源冲突（如邮箱已注册） \\
+    50000 & 500 & 服务器内部错误 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\textbf{认证接口（\texttt{/api/auth}）：}
+
+\begin{table}[H]
+  \centering
+  \caption{认证模块 HTTP 接口}
+  \label{tab:auth-api}
+  \begin{tabularx}{\textwidth}{llXc}
+    \toprule
+    方法 & 路径 & 说明 & 是否鉴权 \\
+    \midrule
+    POST & /api/auth/register & 注册，请求体 \texttt{\{username, email, password\}} & 否 \\
+    POST & /api/auth/login    & 登录，返回 \texttt{accessToken + refreshToken + user} & 否 \\
+    POST & /api/auth/refresh  & 用 \texttt{refreshToken} 换新 \texttt{accessToken} & 否 \\
+    GET  & /api/me            & 获取当前用户信息 & 是 \\
+    GET  & /api/health        & 服务健康检查 & 否 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\textbf{白板接口（\texttt{/api/boards}）：}
+
+\begin{table}[H]
+  \centering
+  \caption{白板模块 HTTP 接口}
+  \label{tab:board-api}
+  \begin{tabularx}{\textwidth}{llXl}
+    \toprule
+    方法 & 路径 & 说明 & 最低权限 \\
+    \midrule
+    GET    & /api/boards             & 获取当前用户可见白板列表 & 登录 \\
+    POST   & /api/boards             & 新建白板，创建者自动成为 owner & 登录 \\
+    GET    & /api/boards/:id         & 获取白板详情（含画布 JSON） & viewer \\
+    PUT    & /api/boards/:id         & 更新白板标题或画布内容 & editor \\
+    DELETE & /api/boards/:id         & 删除白板（级联删除关联数据）& owner \\
+    GET    & /api/boards/:id/versions & 获取版本快照列表 & viewer \\
+    POST   & /api/boards/:id/versions & 创建版本快照 & editor \\
+    POST   & /api/boards/:id/versions/:vid/restore & 回滚到指定版本 & owner \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\textbf{文档接口（\texttt{/api/docs}）：}
+
+\begin{table}[H]
+  \centering
+  \caption{文档模块 HTTP 接口}
+  \label{tab:doc-api}
+  \begin{tabularx}{\textwidth}{llXl}
+    \toprule
+    方法 & 路径 & 说明 & 最低权限 \\
+    \midrule
+    GET    & /api/docs & 获取当前用户可见文档列表 & 登录 \\
+    POST   & /api/docs & 新建文档，默认标题「未命名文档」& 登录 \\
+    GET    & /api/docs/:id & 获取文档详情（含 \texttt{yjs\_state}）& viewer \\
+    GET    & /api/docs/:id/sidebar & 聚合侧边栏数据（评论/版本/成员/统计）& viewer \\
+    PUT    & /api/docs/:id & 保存文档标题或 Yjs 全量快照 & editor \\
+    DELETE & /api/docs/:id & 删除文档（级联删除评论/版本/权限）& owner \\
+    GET    & /api/docs/:id/comments & 获取评论列表（含回复树）& viewer \\
+    POST   & /api/docs/:id/comments & 发表锚点评论（\texttt{position.from/to} 必填）& editor \\
+    POST   & /api/docs/:id/comments/:cid/replies & 回复某条评论 & editor \\
+    PATCH  & /api/docs/:id/comments/:cid/resolve & 标记评论解决/未解决 & editor \\
+    GET    & /api/docs/:id/versions & 获取版本快照列表 & viewer \\
+    POST   & /api/docs/:id/versions & 创建版本快照（含 \texttt{yjs\_state}）& editor \\
+    POST   & /api/docs/:id/versions/:vid/restore & 回滚到指定版本并广播全员 reload & editor \\
+    GET    & /api/docs/:id/members & 获取成员列表（含角色）& viewer \\
+    POST   & /api/docs/:id/members/invite & 按邮箱或用户名邀请成员 & owner \\
+    PUT    & /api/docs/:id/members/:uid & 调整成员权限（viewer/editor）& owner \\
+    DELETE & /api/docs/:id/members/:uid & 移除成员 & owner \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\textbf{Socket.io 事件接口：}
+
+所有 WebSocket 连接须在握手时于 \texttt{handshake.auth.token} 携带 \texttt{accessToken}；服务端在 \texttt{io.use()} 中校验后将 \texttt{userId} 挂载到 \texttt{socket.data}。房间命名规范为 \texttt{item:<itemId>}，一个协作项目对应一个 Socket 房间。
+
+\begin{table}[H]
+  \centering
+  \caption{基础 Socket 事件}
+  \label{tab:socket-base}
+  \begin{tabularx}{\textwidth}{llXl}
+    \toprule
+    事件名 & 方向 & 参数与说明 & 备注 \\
+    \midrule
+    \texttt{join}        & C$\rightarrow$S & \texttt{\{ itemId \}}，加入协作房间，服务端按 item 类型分发权限校验 & — \\
+    \texttt{leave}       & C$\rightarrow$S & \texttt{\{ itemId \}}，离开协作房间 & — \\
+    \texttt{ping}        & C$\rightarrow$S & 无参数，连通性检测 & — \\
+    \texttt{pong}        & S$\rightarrow$C & \texttt{\{ time \}}，返回当前服务端时间戳 & — \\
+    \texttt{user:joined} & S$\rightarrow$C & \texttt{\{ userId, itemId \}}，广播某用户加入房间 & — \\
+    \texttt{user:left}   & S$\rightarrow$C & \texttt{\{ userId, itemId \}}，广播某用户离开房间 & — \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \caption{文档协作 Socket 事件}
+  \label{tab:socket-doc}
+  \begin{tabularx}{\textwidth}{llXl}
+    \toprule
+    事件名 & 方向 & 说明 & 最低权限 \\
+    \midrule
+    \texttt{doc:operation}       & C$\leftrightarrow$S & Yjs 增量 update（base64），广播给房间其他成员 & editor \\
+    \texttt{doc:cursor}          & C$\leftrightarrow$S & Awareness 协作光标同步（base64）& viewer \\
+    \texttt{doc:title-changed}   & C$\leftrightarrow$S & 标题变更，广播给房间其他成员 & editor \\
+    \texttt{doc:sidebar-changed} & C$\leftrightarrow$S & 评论/版本变更，通知其他成员静默刷新侧边栏 & viewer \\
+    \texttt{doc:version-restored}& S$\rightarrow$C & 版本回滚成功，全员（含操作者）需 reload 文档 & — \\
+    \texttt{doc:error}           & S$\rightarrow$C & 权限校验失败，回传 \texttt{\{ itemId, code, message \}} & — \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \caption{白板协作 Socket 事件}
+  \label{tab:socket-board}
+  \begin{tabularx}{\textwidth}{llX}
+    \toprule
+    事件名 & 方向 & 说明 \\
+    \midrule
+    \texttt{board:sync}   & C$\leftrightarrow$S & 画布整体 JSON 广播，其他成员收到后重载画布 \\
+    \texttt{board:draw}   & C$\leftrightarrow$S & 单次笔迹操作广播（轻量增量，降低带宽占用） \\
+    \texttt{board:cursor} & C$\leftrightarrow$S & 多人光标位置实时同步，参数为 \texttt{\{ itemId, x, y \}} \\
+    \texttt{board:error}  & S$\rightarrow$C & 白板权限校验失败，回传错误码与描述 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
 
 % ================================================================
 \clearpage
