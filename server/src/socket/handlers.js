@@ -128,9 +128,6 @@ function handlers(io, socket, { joinRoom, leaveRoom, broadcastToRoom }) {
     socket.to(`item:${itemId}`).emit('board:cursor', { itemId, userId: socket.data.userId, x, y });
   });
 
-  // TODO: 文档同步事件由 C 在此处注册，参考 join/leave 模式
-  // socket.on('doc:operation', handler)
-  // socket.on('doc:cursor', handler)
 }
 
 module.exports = handlers;

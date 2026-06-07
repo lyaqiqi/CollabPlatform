@@ -167,14 +167,22 @@ function DocPage() {
       refreshSidebarQuiet();
     };
 
+    // 4. 服务端拒绝了本客户端的 Socket 操作（权限不足）
+    const onDocError = ({ itemId, message: errMsg }) => {
+      if (itemId !== id) return;
+      Toast.error(errMsg || '操作被拒绝，请检查你的文档权限');
+    };
+
     socketOn(SOCKET_EVENTS.DOC_VERSION_RESTORED, onVersionRestored);
     socketOn(SOCKET_EVENTS.DOC_TITLE_CHANGED, onTitleChanged);
     socketOn(SOCKET_EVENTS.DOC_SIDEBAR_CHANGED, onSidebarChanged);
+    socketOn(SOCKET_EVENTS.DOC_ERROR, onDocError);
 
     return () => {
       socketOff(SOCKET_EVENTS.DOC_VERSION_RESTORED, onVersionRestored);
       socketOff(SOCKET_EVENTS.DOC_TITLE_CHANGED, onTitleChanged);
       socketOff(SOCKET_EVENTS.DOC_SIDEBAR_CHANGED, onSidebarChanged);
+      socketOff(SOCKET_EVENTS.DOC_ERROR, onDocError);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, socketOn, socketOff]);
@@ -341,19 +349,18 @@ function DocPage() {
     const currentRole = sidebarData.members.find(
       (m) => m.user_id === user?.user_id
     )?.role;
-    if (currentRole !== 'owner') {
-      Toast.error('只有文档所有者可以恢复版本');
+    if (currentRole !== 'owner' && currentRole !== 'editor') {
+      Toast.error('需要编辑者及以上权限才能恢复版本');
       return;
     }
     try {
       await restoreDocVersion(id, versionId);
       Toast.success('版本已恢复，即将刷新页面…');
-      socketEmit(SOCKET_EVENTS.DOC_VERSION_RESTORED, { itemId: id });
       setTimeout(() => window.location.reload(), 1200);
     } catch (err) {
       Toast.error(err?.message || '版本恢复失败');
     }
-  }, [id, sidebarData.members, user?.user_id, socketEmit]);
+  }, [id, sidebarData.members, user?.user_id]);
 
   /* 解决评论 */
   const handleResolveComment = useCallback(async (commentId) => {

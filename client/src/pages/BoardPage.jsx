@@ -724,16 +724,23 @@ function BoardPage() {
         .catch(() => {});
     };
 
+    const handleBoardError = ({ itemId: errItemId, message: errMsg }) => {
+      if (errItemId !== id) return;
+      Toast.error(errMsg || '操作被拒绝，请检查你的白板权限');
+    };
+
     on(SOCKET_EVENTS.BOARD_SYNC, handleSync);
     on(SOCKET_EVENTS.BOARD_CURSOR, handleCursor);
     on(SOCKET_EVENTS.USER_LEFT, handleUserLeft);
     on(SOCKET_EVENTS.BOARD_VERSION_RESTORED, handleVersionRestored);
+    on(SOCKET_EVENTS.BOARD_ERROR, handleBoardError);
 
     return () => {
       off(SOCKET_EVENTS.BOARD_SYNC, handleSync);
       off(SOCKET_EVENTS.BOARD_CURSOR, handleCursor);
       off(SOCKET_EVENTS.USER_LEFT, handleUserLeft);
       off(SOCKET_EVENTS.BOARD_VERSION_RESTORED, handleVersionRestored);
+      off(SOCKET_EVENTS.BOARD_ERROR, handleBoardError);
       if (joinedRef.current) {
         leaveRoom(id);
         joinedRef.current = false;
