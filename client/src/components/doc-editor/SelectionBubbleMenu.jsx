@@ -8,8 +8,10 @@ import {
   LinkOutlined,
   MessageOutlined,
   StrikethroughOutlined,
+  UnderlineOutlined,
 } from '@ant-design/icons';
 import { Input, Modal, Popover, Tooltip } from 'antd';
+import AIBubbleActions from './AIBubbleActions';
 
 /* ── 预设文字颜色色板 ── */
 const TEXT_COLORS = [
@@ -130,7 +132,7 @@ function ColorPicker({ editor }) {
   );
 }
 
-export default function SelectionBubbleMenu({ editor, onCreateComment }) {
+export default function SelectionBubbleMenu({ editor, onCreateComment, onAIAction, aiLoading }) {
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState('https://');
   const savedRangeRef = useRef(null);
@@ -184,6 +186,11 @@ export default function SelectionBubbleMenu({ editor, onCreateComment }) {
             <ItalicOutlined />
           </BubbleBtn>
 
+          <BubbleBtn title="下划线 (Ctrl+U)" active={editor.isActive('underline')}
+            onClick={() => editor.chain().focus().toggleUnderline().run()}>
+            <UnderlineOutlined />
+          </BubbleBtn>
+
           <BubbleBtn title="删除线" active={editor.isActive('strike')}
             onClick={() => editor.chain().focus().toggleStrike().run()}>
             <StrikethroughOutlined />
@@ -207,6 +214,10 @@ export default function SelectionBubbleMenu({ editor, onCreateComment }) {
           )}
 
           <div className="selection-bubble__sep" />
+
+          {onAIAction && (
+            <AIBubbleActions onAction={onAIAction} loading={aiLoading} />
+          )}
 
           <button
             type="button"

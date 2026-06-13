@@ -17,8 +17,12 @@ function avatarColor(name) {
   return COLORS[Math.abs(h) % COLORS.length];
 }
 
+/**
+ * breadcrumb: Array<{ label: string, onClick?: () => void }>
+ * 最后一项视为当前页（当前文档），不可点击，样式加重。
+ */
 export default function DocImmersiveHeader({
-  title,
+  breadcrumb = [],
   onlineUsers = [],
   onToggleLeft,
   leftCollapsed,
@@ -27,6 +31,7 @@ export default function DocImmersiveHeader({
   onOpenSearch,
   onShare,
   onExport,
+  onAI,
 }) {
   const displayed = onlineUsers.slice(0, 6);
   const extra = onlineUsers.length - displayed.length;
@@ -40,26 +45,30 @@ export default function DocImmersiveHeader({
           </button>
         </Tooltip>
 
-        <div className="doc-header__breadcrumb">
-          <span>知识库</span>
-          <span className="doc-header__breadcrumb-sep">/</span>
-          <span>协作文档</span>
-          <span className="doc-header__breadcrumb-sep">/</span>
-          <span
-            style={{
-              color: 'var(--doc-text-2)',
-              fontWeight: 500,
-              maxWidth: 220,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              display: 'inline-block',
-              verticalAlign: 'middle',
-            }}
-          >
-            {title || '未命名文档'}
-          </span>
-        </div>
+        <nav className="doc-header__breadcrumb" aria-label="文档路径">
+          {breadcrumb.map((seg, idx) => {
+            const isLast = idx === breadcrumb.length - 1;
+            return (
+              <span key={idx} className="doc-header__breadcrumb-seg">
+                {idx > 0 && (
+                  <span className="doc-header__breadcrumb-sep" aria-hidden="true">/</span>
+                )}
+                {isLast ? (
+                  <span className="doc-header__breadcrumb-current">{seg.label}</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="doc-header__breadcrumb-link"
+                    onClick={seg.onClick}
+                    title={seg.label}
+                  >
+                    {seg.label}
+                  </button>
+                )}
+              </span>
+            );
+          })}
+        </nav>
       </div>
 
       <div className="doc-header__right">
@@ -125,10 +134,12 @@ export default function DocImmersiveHeader({
           </button>
         </Tooltip>
 
-        <button className="doc-icon-btn doc-icon-btn--primary" type="button">
-          <RobotOutlined />
-          AI 助手
-        </button>
+        <Tooltip title="AI 助手" placement="bottom">
+          <button className="doc-icon-btn doc-icon-btn--primary" type="button" onClick={onAI}>
+            <RobotOutlined />
+            AI 助手
+          </button>
+        </Tooltip>
       </div>
     </div>
   );

@@ -7,11 +7,13 @@ import {
   EnvironmentOutlined,
   HistoryOutlined,
   MessageOutlined,
+  RobotOutlined,
   SearchOutlined,
   SendOutlined,
   TeamOutlined,
   UserAddOutlined,
 } from '@ant-design/icons';
+import DocAIPanel from './DocAIPanel';
 
 function formatTime(value) {
   if (!value) return '';
@@ -25,7 +27,7 @@ function formatTime(value) {
 }
 
 /* ─────────────── 评论卡片（支持回复线程） ─────────────── */
-function CommentCard({ item, activeCommentId, onResolveComment, onJumpToComment, onCreateReply }) {
+function CommentCard({ item, activeCommentId, onToggleResolve, onJumpToComment, onCreateReply }) {
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [replying, setReplying] = useState(false);
@@ -51,13 +53,17 @@ function CommentCard({ item, activeCommentId, onResolveComment, onJumpToComment,
       <div className="comment-card__content">{item.content}</div>
       <div className="comment-card__actions">
         {item.is_resolved ? (
-          <Tag color="success" style={{ fontSize: 11, borderRadius: 'var(--doc-radius-xs)', margin: 0 }}>已解决</Tag>
+          <Tooltip title="重新开启此评论">
+            <Button type="text" size="small" icon={<CheckCircleOutlined />}
+              style={{ fontSize: 12, color: 'var(--doc-success, #52c41a)', padding: '0 4px' }}
+              onClick={() => onToggleResolve(item.comment_id, false)}>已解决</Button>
+          </Tooltip>
         ) : (
           <>
             <Tooltip title="标记为已解决">
               <Button type="text" size="small" icon={<CheckCircleOutlined />}
                 style={{ fontSize: 12, color: 'var(--doc-text-3)', padding: '0 4px' }}
-                onClick={() => onResolveComment(item.comment_id)}>解决</Button>
+                onClick={() => onToggleResolve(item.comment_id, true)}>解决</Button>
             </Tooltip>
             <Tooltip title="回复">
               <Button type="text" size="small" icon={<SendOutlined />}
@@ -104,7 +110,7 @@ function CommentCard({ item, activeCommentId, onResolveComment, onJumpToComment,
 /* ─────────────── 评论面板 ─────────────── */
 function CommentsPanel({
   comments, currentSelection, creatingComment,
-  onCreateComment, onResolveComment, onJumpToComment,
+  onCreateComment, onToggleResolve, onJumpToComment,
   activeCommentId, onCreateReply,
 }) {
   const [commentInput, setCommentInput] = useState('');
@@ -167,7 +173,7 @@ function CommentsPanel({
         ) : (
           displayed.map((item) => (
             <CommentCard key={item.comment_id} item={item} activeCommentId={activeCommentId}
-              onResolveComment={onResolveComment} onJumpToComment={onJumpToComment}
+              onToggleResolve={onToggleResolve} onJumpToComment={onJumpToComment}
               onCreateReply={onCreateReply} />
           ))
         )}
@@ -177,7 +183,15 @@ function CommentsPanel({
 }
 
 /* ─────────────── 版本历史面板 ─────────────── */
-function VersionsPanel({ versions, onCreateCheckpoint, checkpointSaving, onRestoreVersion }) {
+/* ─────────────── 版本历史面板 ─────────────── */
+function VersionsPanel({ 
+  versions, 
+  onCreateCheckpoint, 
+  checkpointSaving, 
+  onRestoreVersion,
+  onPreviewVersion,
+  currentUserRole,
+}) {
   const [label, setLabel] = useState('');
 
   const handleCreate = () => {
@@ -186,6 +200,10 @@ function VersionsPanel({ versions, onCreateCheckpoint, checkpointSaving, onResto
   };
 
   const handleRestore = (version, num) => {
+    if (currentUserRole !== 'owner' && currentUserRole !== 'editor') {
+      Modal.warning({ title: '权限不足', content: '只有所有者或编辑者可以恢复版本' });
+      return;
+    }
     const vLabel = version.content_snapshot?.label ? `"${version.content_snapshot.label}"` : `#${num}`;
     Modal.confirm({
       title: '确认恢复版本',
@@ -225,6 +243,11 @@ function VersionsPanel({ versions, onCreateCheckpoint, checkpointSaving, onResto
                 <div className="version-item__label">{vLabel || `版本快照 #${num}`}</div>
                 <div className="version-item__time">{formatTime(item.created_at)}</div>
               </div>
+              <Tooltip title="预览版本内容">
+                <Button type="text" size="small"
+                  style={{ fontSize: 12, color: 'var(--doc-brand)', flexShrink: 0 }}
+                  onClick={() => onPreviewVersion?.(item)}>预览</Button>
+              </Tooltip>
               <Tooltip title="恢复到此版本">
                 <Button type="text" size="small"
                   style={{ fontSize: 12, color: 'var(--doc-brand)', flexShrink: 0 }}
@@ -240,9 +263,10 @@ function VersionsPanel({ versions, onCreateCheckpoint, checkpointSaving, onResto
 
 /* ─────────────── 搜索面板（全文搜索 + 目录跳转 + 成员管理） ─────────────── */
 function SearchPanel({
-  comments, members, outline,
+  comments, members, outline, docTitle = '',
   onJumpToComment, onSearchInDoc, onJumpToDocResult, onJumpToOutline,
-  onInviteMember, onRemoveMember,
+  onInviteMember, onRemoveMember, onUpdateMemberRole,
+  currentUserRole,
 }) {
   const [keyword, setKeyword] = useState('');
   const [docResults, setDocResults] = useState([]);
@@ -291,6 +315,16 @@ function SearchPanel({
 
       {keyword.trim() && (
         <>
+          {/* ── 标题命中 ── */}
+          {docTitle && docTitle.toLowerCase().includes(keyword.toLowerCase()) && (
+            <div style={{ marginBottom: 12 }}>
+              <div className="search-section-title">标题命中</div>
+              <div className="search-result-item" style={{ fontWeight: 600 }}>
+                {docTitle}
+              </div>
+            </div>
+          )}
+
           {/* ── 正文命中 ── */}
           <div className="search-section-title">正文命中（{docResults.length}）</div>
           {docResults.length === 0 ? (
@@ -385,34 +419,53 @@ function SearchPanel({
           )}
 
           {/* 成员列表 */}
-          {members.map((item) => (
-            <div key={item.user_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--doc-border-light)' }}>
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--doc-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                {(item.username || 'U').slice(0, 1).toUpperCase()}
-              </div>
-              <span style={{ fontSize: 13, color: 'var(--doc-text)', flex: 1 }}>{item.username}</span>
-              <Tag style={{ fontSize: 11, margin: 0 }} color={item.role === 'owner' ? 'gold' : item.role === 'editor' ? 'blue' : 'default'}>
-                {item.role === 'owner' ? '所有者' : item.role === 'editor' ? '编辑者' : '查看者'}
-              </Tag>
-              {item.role !== 'owner' && onRemoveMember && (
-                <Tooltip title="移除成员">
-                  <Button
-                    type="text" size="small" icon={<DeleteOutlined />}
-                    style={{ fontSize: 12, color: 'var(--doc-text-3)', padding: '0 2px' }}
-                    onClick={() => {
-                      Modal.confirm({
-                        title: '移除成员',
-                        content: `确认将 ${item.username} 从文档移除？`,
-                        okText: '移除', okButtonProps: { danger: true },
-                        cancelText: '取消',
-                        onOk: () => onRemoveMember(item.user_id),
-                      });
-                    }}
+          {members.map((item) => {
+            const isOwner = item.role === 'owner';
+            const canEdit = currentUserRole === 'owner' && !isOwner;
+            return (
+              <div key={item.user_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--doc-border-light)' }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--doc-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                  {(item.username || 'U').slice(0, 1).toUpperCase()}
+                </div>
+                <span style={{ fontSize: 13, color: 'var(--doc-text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {item.username}
+                </span>
+                {canEdit ? (
+                  <Select
+                    value={item.role}
+                    size="small"
+                    style={{ width: 80, fontSize: 12 }}
+                    onChange={(newRole) => onUpdateMemberRole?.(item.user_id, newRole)}
+                    options={[
+                      { value: 'editor', label: '编辑者' },
+                      { value: 'viewer', label: '查看者' },
+                    ]}
                   />
-                </Tooltip>
-              )}
-            </div>
-          ))}
+                ) : (
+                  <Tag style={{ fontSize: 11, margin: 0 }} color={isOwner ? 'gold' : item.role === 'editor' ? 'blue' : 'default'}>
+                    {isOwner ? '所有者' : item.role === 'editor' ? '编辑者' : '查看者'}
+                  </Tag>
+                )}
+                {canEdit && onRemoveMember && (
+                  <Tooltip title="移除成员">
+                    <Button
+                      type="text" size="small" icon={<DeleteOutlined />}
+                      style={{ fontSize: 12, color: 'var(--doc-text-3)', padding: '0 2px' }}
+                      onClick={() => {
+                        Modal.confirm({
+                          title: '移除成员',
+                          content: `确认将 ${item.username} 从文档移除？`,
+                          okText: '移除', okButtonProps: { danger: true },
+                          cancelText: '取消',
+                          onOk: () => onRemoveMember(item.user_id),
+                        });
+                      }}
+                    />
+                  </Tooltip>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -424,6 +477,7 @@ const TABS = [
   { key: 'comments', icon: <MessageOutlined />, title: '评论' },
   { key: 'versions', icon: <HistoryOutlined />, title: '版本历史' },
   { key: 'search', icon: <SearchOutlined />, title: '搜索 & 成员' },
+  { key: 'ai', icon: <RobotOutlined />, title: 'AI 助手' },
 ];
 
 export default function DocRightPanel({
@@ -431,11 +485,15 @@ export default function DocRightPanel({
   loading,
   comments = [], versions = [], members = [], outline = [],
   checkpointSaving, onCreateCheckpoint,
-  onResolveComment, onCreateComment, onJumpToComment,
+  onToggleResolveComment, onCreateComment, onJumpToComment,
   onCreateReply, onRestoreVersion,
   onSearchInDoc, onJumpToDocResult, onJumpToOutline,
-  onInviteMember, onRemoveMember,
+  onInviteMember, onRemoveMember, onUpdateMemberRole,
   currentSelection, creatingComment, activeCommentId,
+  onPreviewVersion,
+  currentUserRole,
+  docTitle = '',
+  ai,
 }) {
   if (!open) return null;
 
@@ -464,7 +522,16 @@ export default function DocRightPanel({
       </div>
 
       <div className="doc-right-panel__body">
-        {loading ? (
+        {activeTab === 'ai' ? (
+          <DocAIPanel
+            messages={ai?.chatMessages}
+            input={ai?.chatInput}
+            onInputChange={ai?.setChatInput}
+            loading={ai?.chatLoading}
+            onSend={ai?.sendChatMessage}
+            onClear={ai?.clearChat}
+          />
+        ) : loading ? (
           <div style={{ textAlign: 'center', padding: '48px 0' }}><Spin /></div>
         ) : (
           <>
@@ -472,23 +539,32 @@ export default function DocRightPanel({
               <CommentsPanel
                 comments={comments} currentSelection={currentSelection}
                 creatingComment={creatingComment} onCreateComment={onCreateComment}
-                onResolveComment={onResolveComment} onJumpToComment={onJumpToComment}
+                onToggleResolve={onToggleResolveComment} onJumpToComment={onJumpToComment}
                 activeCommentId={activeCommentId} onCreateReply={onCreateReply}
               />
             )}
             {activeTab === 'versions' && (
-              <VersionsPanel versions={versions} onCreateCheckpoint={onCreateCheckpoint}
-                checkpointSaving={checkpointSaving} onRestoreVersion={onRestoreVersion} />
+              <VersionsPanel 
+                versions={versions} 
+                onCreateCheckpoint={onCreateCheckpoint}
+                checkpointSaving={checkpointSaving} 
+                onRestoreVersion={onRestoreVersion}
+                onPreviewVersion={onPreviewVersion}
+                currentUserRole={currentUserRole}
+              />
             )}
             {activeTab === 'search' && (
               <SearchPanel
                 comments={comments} members={members} outline={outline}
+                docTitle={docTitle}
                 onJumpToComment={onJumpToComment}
                 onSearchInDoc={onSearchInDoc}
                 onJumpToDocResult={onJumpToDocResult}
                 onJumpToOutline={onJumpToOutline}
                 onInviteMember={onInviteMember}
                 onRemoveMember={onRemoveMember}
+                onUpdateMemberRole={onUpdateMemberRole}
+                currentUserRole={currentUserRole}
               />
             )}
           </>

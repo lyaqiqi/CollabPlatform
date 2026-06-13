@@ -13,8 +13,8 @@ app.use(cors({
   credentials: true,
 }));
 
-// JSON 解析
-app.use(express.json());
+// JSON 解析（Yjs 二进制快照经 Base64 编码后体积较大，调高上限）
+app.use(express.json({ limit: '10mb' }));
 
 // 请求日志
 app.use(requestLogger);

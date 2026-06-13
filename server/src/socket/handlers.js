@@ -1,4 +1,6 @@
+const prisma = require('../config/prisma');
 const docService = require('../services/doc.service');
+const boardService = require('../services/board.service');
 
 /**
  * 为每个连接的 socket 注册基础事件处理器
@@ -21,10 +23,37 @@ function handlers(io, socket, { joinRoom, leaveRoom, broadcastToRoom }) {
     }
   }
 
-  // 加入协作项目房间
+  async function canAccessBoard(itemId) {
+    try {
+      await boardService.assertBoardReadable({ userId: socket.data.userId, itemId });
+      return true;
+    } catch (err) {
+      socket.emit('board:error', {
+        itemId,
+        code: err.code || 40301,
+        message: err.message || '白板权限校验失败',
+      });
+      return false;
+    }
+  }
+
+  // 加入协作项目房间：先查 item 类型，再走对应权限校验
   socket.on('join', async ({ itemId }) => {
     if (!itemId) return;
-    if (!(await canAccessDoc(itemId, 'viewer'))) return;
+    let item;
+    try {
+      item = await prisma.collaborativeItem.findUnique({
+        where: { item_id: itemId },
+        select: { type: true },
+      });
+    } catch { return; }
+    if (!item) return;
+
+    if (item.type === 'Document') {
+      if (!(await canAccessDoc(itemId, 'viewer'))) return;
+    } else if (item.type === 'Whiteboard') {
+      if (!(await canAccessBoard(itemId))) return;
+    }
     joinRoom(socket, itemId);
   });
 
@@ -77,9 +106,40 @@ function handlers(io, socket, { joinRoom, leaveRoom, broadcastToRoom }) {
     broadcastToRoom(itemId, 'doc:sidebar-changed', { itemId }, socket.id);
   });
 
-  // TODO: 白板同步事件由 B 在此处注册，参考 join/leave 模式
-  // socket.on('board:draw', handler)
-  // socket.on('board:clear', handler)
+  const inRoom = (itemId) => socket.rooms.has(`item:${itemId}`);
+
+  socket.on('board:draw', ({ itemId, ...payload }) => {
+    if (!itemId) return;
+    if (!inRoom(itemId)) return;
+    socket.to(`item:${itemId}`).emit('board:draw', { itemId, userId: socket.data.userId, ...payload });
+  });
+
+  socket.on('board:sync', ({ itemId, canvas }) => {
+    if (!itemId) return;
+    if (!inRoom(itemId)) return;
+    if (!canvas) return;
+    socket.to(`item:${itemId}`).emit('board:sync', { itemId, userId: socket.data.userId, canvas });
+  });
+
+  socket.on('board:cursor', ({ itemId, x, y }) => {
+    if (!itemId) return;
+    if (!inRoom(itemId)) return;
+    if (typeof x !== 'number' || typeof y !== 'number') return;
+    socket.to(`item:${itemId}`).emit('board:cursor', { itemId, userId: socket.data.userId, x, y });
+  });
+
+  // 订阅文档树变更房间：用户登录后调用一次，服务端的文件夹/文档增删改后会推送 tree:* 事件
+  socket.on('tree:subscribe', () => {
+    const userId = socket.data.userId;
+    socket.join(`tree:${userId}`);
+    console.log(`[socket] 用户 ${userId} 订阅文档树房间 tree:${userId}`);
+  });
+
+  socket.on('tree:unsubscribe', () => {
+    const userId = socket.data.userId;
+    socket.leave(`tree:${userId}`);
+    console.log(`[socket] 用户 ${userId} 取消订阅文档树房间 tree:${userId}`);
+  });
 }
 
 module.exports = handlers;

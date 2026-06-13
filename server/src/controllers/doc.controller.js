@@ -1,5 +1,6 @@
 const docService = require('../services/doc.service');
-const { broadcastToRoom } = require('../socket');
+const { getItemCollaborators } = require('../services/folder.service');
+const { broadcastToRoom, broadcastToTreeRoom } = require('../socket');
 const { success } = require('../utils/response');
 
 async function listDocsController(req, res, next) {
@@ -14,6 +15,15 @@ async function listDocsController(req, res, next) {
 async function createDocController(req, res, next) {
   try {
     const doc = await docService.createDoc(req.user.userId, req.body);
+    broadcastToTreeRoom(req.user.userId, 'tree:doc-created', {
+      doc: {
+        item_id: doc.item_id,
+        title: doc.title,
+        folder_id: doc.folder_id ?? null,
+        owner_id: doc.owner_id,
+      },
+    });
+    // 新建文档尚无协作者，无需通知
     return success(res, doc, '文档创建成功', 201);
   } catch (err) {
     next(err);
@@ -49,8 +59,30 @@ async function updateDocController(req, res, next) {
 
 async function deleteDocController(req, res, next) {
   try {
+    // 删除前先获取协作者列表（删除后就查不到了）
+    const collaborators = await getItemCollaborators(req.params.id).catch(() => []);
     await docService.deleteDoc(req.user.userId, req.params.id);
+    broadcastToTreeRoom(req.user.userId, 'tree:doc-deleted', { docId: req.params.id });
+    // 通知协作者：他们树上的共享文档已消失
+    collaborators.forEach((uid) => broadcastToTreeRoom(uid, 'tree:reload', {}));
     return success(res, null, '文档已删除');
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function moveDocToFolderController(req, res, next) {
+  try {
+    const doc = await docService.moveDocToFolder(req.user.userId, req.params.id, req.body);
+    const folderId = doc.folder_id ?? null;
+    broadcastToTreeRoom(req.user.userId, 'tree:doc-moved', {
+      docId: req.params.id,
+      folderId,
+    });
+    // 文档移动到新文件夹：通知协作者重新加载树，让他们能看到最新的文件夹归属
+    const collaborators = await getItemCollaborators(req.params.id).catch(() => []);
+    collaborators.forEach((uid) => broadcastToTreeRoom(uid, 'tree:reload', {}));
+    return success(res, doc, '文档已移动');
   } catch (err) {
     next(err);
   }
@@ -186,6 +218,7 @@ module.exports = {
   getDocSidebarController,
   updateDocController,
   deleteDocController,
+  moveDocToFolderController,
   listDocCommentsController,
   createDocCommentController,
   createCommentReplyController,
