@@ -25,11 +25,28 @@ cd client && npm install && cd ..
 ```bash
 # 后端
 cp server/.env.example server/.env
-# 编辑 server/.env，填入真实的 DATABASE_URL、JWT_SECRET 等
+# 编辑 server/.env，填入以下关键字段：
+```
 
-# 前端
-cp client/.env.example client/.env
-# 一般不需要修改，默认指向本地 3000 端口
+`server/.env` 必填字段说明：
+
+| 字段 | 说明 |
+|------|------|
+| `DATABASE_URL` | Supabase 连接池地址（端口 **6543**），用于应用运行时查询 |
+| `DIRECT_URL` | Supabase 直连地址（端口 **5432**），用于 Prisma 迁移建表 |
+| `JWT_SECRET` | 自定义随机字符串即可 |
+| `JWT_EXPIRES_IN` | 建议开发期间设为 `7d`，避免频繁重新登录 |
+
+**注意**：Supabase 控制台复制的连接串密码带方括号，如 `[your-password]`，填入 `.env` 时必须去掉方括号，只保留 `your-password`。
+
+完整示例：
+```
+DATABASE_URL=postgresql://postgres.项目ID:密码@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres
+DIRECT_URL=postgresql://postgres:密码@db.项目ID.supabase.co:5432/postgres
+JWT_SECRET=随机字符串
+JWT_EXPIRES_IN=7d
+JWT_REFRESH_EXPIRES_IN=7d
+CLIENT_ORIGIN=http://localhost:5173
 ```
 
 ```bash
@@ -45,16 +62,71 @@ echo "VITE_WS_URL=http://localhost:3000" > client/.env
 
 ## 4. 初始化数据库
 
-> 人工填好 `server/.env` 中的 `DATABASE_URL` 后执行：
+### 方式一：使用 Prisma（推荐，需要 DIRECT_URL 可达）
 
 ```bash
 cd server
-npm run prisma:migrate   # 运行 prisma migrate dev，建表（含文档评论回复用的 parent_id 迁移）
-npm run prisma:generate  # 生成 Prisma Client（首次必须执行）
+npx prisma db push      # 将 schema 推送到数据库建表
+npx prisma generate     # 生成 Prisma Client
 ```
 
-> 文档模块新增了 `Comment.parent_id`（评论回复自关联）迁移。拉取 `feature/doc` 后若提示
-> schema 与数据库不一致，重新执行 `npm run prisma:migrate` 应用最新迁移即可。
+> 执行 `prisma db push` / `prisma migrate` 时后端服务必须停止，否则 Prisma Client 文件被占用会报 EPERM 错误。
+
+### 方式二：Supabase SQL 编辑器（当 5432 端口不可达时）
+
+直接在 Supabase 控制台 → SQL Editor 执行以下建表语句，再本地运行 `npx prisma generate`：
+
+```sql
+CREATE TYPE "UserStatus" AS ENUM ('active', 'banned');
+CREATE TYPE "ItemType" AS ENUM ('Whiteboard', 'Document');
+CREATE TYPE "PermissionRole" AS ENUM ('owner', 'editor', 'viewer');
+
+CREATE TABLE "User" (
+  "user_id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  "username" VARCHAR(32) UNIQUE NOT NULL,
+  "email" VARCHAR(128) UNIQUE NOT NULL,
+  "password_hash" VARCHAR(256) NOT NULL,
+  "status" "UserStatus" NOT NULL DEFAULT 'active',
+  "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE "CollaborativeItem" (
+  "item_id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  "type" "ItemType" NOT NULL,
+  "owner_id" TEXT NOT NULL REFERENCES "User"("user_id"),
+  "title" VARCHAR(256) NOT NULL,
+  "is_public" BOOLEAN NOT NULL DEFAULT false,
+  "content_data" JSONB,
+  "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE "Permission" (
+  "permission_id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  "user_id" TEXT NOT NULL REFERENCES "User"("user_id"),
+  "item_id" TEXT NOT NULL REFERENCES "CollaborativeItem"("item_id") ON DELETE CASCADE,
+  "role" "PermissionRole" NOT NULL,
+  UNIQUE("user_id", "item_id")
+);
+CREATE TABLE "Version" (
+  "version_id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  "item_id" TEXT NOT NULL REFERENCES "CollaborativeItem"("item_id") ON DELETE CASCADE,
+  "content_snapshot" JSONB NOT NULL,
+  "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE "Comment" (
+  "comment_id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  "item_id" TEXT NOT NULL REFERENCES "CollaborativeItem"("item_id") ON DELETE CASCADE,
+  "author_id" TEXT NOT NULL REFERENCES "User"("user_id"),
+  "parent_id" TEXT REFERENCES "Comment"("comment_id") ON DELETE CASCADE,
+  "content" TEXT NOT NULL,
+  "position" JSONB NOT NULL,
+  "is_resolved" BOOLEAN NOT NULL DEFAULT false,
+  "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$ BEGIN NEW."updated_at" = NOW(); RETURN NEW; END; $$ LANGUAGE plpgsql;
+CREATE TRIGGER trg_item_updated_at BEFORE UPDATE ON "CollaborativeItem"
+FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+```
 
 ## 5. 启动后端
 
@@ -198,6 +270,36 @@ function DocPage() {
 
 ---
 
+## 开发期间绕过登录（D 的登录页尚未实现）
+
+在 D 完成 `LoginPage.jsx` 之前，用以下方式直接进入受保护页面：
+
+**第一步：PowerShell 登录拿 token**
+
+```powershell
+$res = Invoke-RestMethod -Uri "http://localhost:3000/api/auth/login" `
+  -Method POST -ContentType "application/json" `
+  -Body '{"email":"你的邮箱","password":"你的密码"}'
+Write-Host $res.data.accessToken
+Write-Host $res.data.refreshToken
+```
+
+**第二步：浏览器 F12 → Console 注入（替换成上一步输出的值）**
+
+```javascript
+localStorage.setItem('collab_access_token', '粘贴accessToken')
+localStorage.setItem('collab_refresh_token', '粘贴refreshToken')
+localStorage.setItem('collab_user', JSON.stringify({
+  user_id: "粘贴user_id",
+  username: "你的用户名",
+  email: "你的邮箱"
+}))
+```
+
+执行后直接在地址栏输入目标页面地址（`/board/:id` 或 `/doc/:id`）即可，**无需刷新**。
+
+---
+
 ## 常见问题
 
 **Q：Redis 未配置，会影响启动吗？**
@@ -207,7 +309,7 @@ A：不会。后端已做容错降级，REDIS_URL 为空时会打印警告并以
 A：检查 `server/.env` 中的 `DATABASE_URL` 格式是否正确（postgresql://user:pass@host:port/db）。
 
 **Q：前端页面跳转到 /login 怎么回事？**
-A：localStorage 中没有有效 token，需要先登录。开发时可在浏览器控制台手动设置 token 测试受保护页面。
+A：D 的登录页尚未实现，需在浏览器控制台手动注入 token（见下方「开发期间绕过登录」）。
 
 **Q：打开文档报「找不到 @tiptap/...」或编辑器空白？**
 A：拉取 `feature/doc` 后没有在 `client` 重新 `npm install`。文档模块新增了 TipTap / Yjs 等依赖，需重装。

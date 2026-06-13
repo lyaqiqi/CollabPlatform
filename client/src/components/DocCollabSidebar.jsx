@@ -30,14 +30,19 @@ export default function DocCollabSidebar({
   checkpointSaving,
   onResolveComment,
   onCreateComment,
+  onCreateReply,
   onJumpToComment,
   currentSelection,
   creatingComment,
+  activeCommentId,
+  onPreviewVersion,
   embedded = false,
 }) {
   const [commentInput, setCommentInput] = useState('');
   const [onlyUnresolved, setOnlyUnresolved] = useState(false);
   const [unresolvedCursor, setUnresolvedCursor] = useState(0);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [replyInput, setReplyInput] = useState('');
 
   const options = useMemo(
     () => [
@@ -74,9 +79,7 @@ export default function DocCollabSidebar({
     const content = commentInput.trim();
     if (!content || !hasSelection) return;
     const ok = await onCreateComment(content);
-    if (ok) {
-      setCommentInput('');
-    }
+    if (ok) setCommentInput('');
   };
 
   const handleJumpNextUnresolved = () => {
@@ -84,6 +87,16 @@ export default function DocCollabSidebar({
     const idx = unresolvedCursor % unresolvedComments.length;
     onJumpToComment(unresolvedComments[idx]);
     setUnresolvedCursor((prev) => prev + 1);
+  };
+
+  const handleReply = async (commentId) => {
+    const content = replyInput.trim();
+    if (!content || !commentId) return;
+    const ok = await onCreateReply(commentId, content);
+    if (ok) {
+      setReplyingTo(null);
+      setReplyInput('');
+    }
   };
 
   return (
@@ -160,6 +173,7 @@ export default function DocCollabSidebar({
               dataSource={displayedComments}
               renderItem={(item) => (
                 <List.Item
+                  className={item.comment_id === activeCommentId ? 'doc-comment-card--active' : ''}
                   actions={[
                     <Button
                       key="locate"
@@ -189,8 +203,65 @@ export default function DocCollabSidebar({
                       </Space>
                     }
                     description={
-                      <Space direction="vertical" size={2}>
+                      <Space direction="vertical" size={2} style={{ width: '100%' }}>
                         <Typography.Text>{item.content}</Typography.Text>
+
+                        {item.replies?.length > 0 && (
+                          <div style={{ marginLeft: 8, paddingLeft: 10, borderLeft: '2px solid #e8e8e8' }}>
+                            {item.replies.map((reply) => (
+                              <div key={reply.comment_id} style={{ padding: '6px 0' }}>
+                                <Space size={4}>
+                                  <Typography.Text strong style={{ fontSize: 12 }}>
+                                    {reply.author?.username || '未知用户'}
+                                  </Typography.Text>
+                                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                                    {formatTime(reply.created_at)}
+                                  </Typography.Text>
+                                </Space>
+                                <Typography.Text style={{ fontSize: 13, display: 'block' }}>
+                                  {reply.content}
+                                </Typography.Text>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {replyingTo === item.comment_id ? (
+                          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                            <Input.TextArea
+                              value={replyInput}
+                              onChange={(e) => setReplyInput(e.target.value)}
+                              placeholder="输入回复内容..."
+                              autoSize={{ minRows: 2, maxRows: 4 }}
+                            />
+                            <Space>
+                              <Button
+                                type="primary"
+                                size="small"
+                                disabled={!replyInput.trim()}
+                                onClick={() => handleReply(item.comment_id)}
+                              >
+                                发送回复
+                              </Button>
+                              <Button
+                                size="small"
+                                onClick={() => { setReplyingTo(null); setReplyInput(''); }}
+                              >
+                                取消
+                              </Button>
+                            </Space>
+                          </Space>
+                        ) : (
+                          <Button
+                            type="link"
+                            size="small"
+                            style={{ padding: 0, height: 'auto' }}
+                            onClick={() => setReplyingTo(item.comment_id)}
+                          >
+                            回复
+                          </Button>
+                        )}
+
                         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                           {formatTime(item.created_at)}
                         </Typography.Text>
@@ -209,12 +280,32 @@ export default function DocCollabSidebar({
             locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无版本快照" /> }}
             dataSource={versions}
             renderItem={(item, index) => (
-              <List.Item>
+              <List.Item
+                actions={[
+                  <Button
+                    key="preview"
+                    type="link"
+                    size="small"
+                    onClick={() => onPreviewVersion?.(item)}
+                  >
+                    预览
+                  </Button>,
+                  <Button
+                    key="restore"
+                    type="link"
+                    size="small"
+                    onClick={() => onRestoreVersion(item.version_id)}
+                  >
+                    恢复
+                  </Button>,
+                ]}
+              >
                 <List.Item.Meta
                   title={`版本 #${versions.length - index}`}
                   description={
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                       {formatTime(item.created_at)}
+                      {item.content_snapshot?.label && ` · ${item.content_snapshot.label}`}
                     </Typography.Text>
                   }
                 />

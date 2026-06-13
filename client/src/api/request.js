@@ -1,49 +1,122 @@
-import axios from 'axios';
+﻿import axios from 'axios';
 import { ERROR_CODES } from '../utils/constants';
+import useAuthStore, { TOKEN_KEY, REFRESH_TOKEN_KEY } from '../store/authStore';
+
+const baseURL = import.meta.env.VITE_API_BASE_URL || '/api';
+const AUTH_SKIP_REFRESH_PATHS = ['/auth/login', '/auth/register', '/auth/refresh'];
 
 const instance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
-  timeout: 10000,
+  baseURL,
+  timeout: 20000,
 });
 
-// 请求拦截器：自动附加 accessToken
+let refreshPromise = null;
+
+function isRefreshEligible(config) {
+  const url = config?.url || '';
+  return !AUTH_SKIP_REFRESH_PATHS.some((path) => url.includes(path));
+}
+
+function redirectToLogin() {
+  if (window.location.pathname !== '/login') {
+    window.location.href = '/login';
+  }
+}
+
+function clearAuth() {
+  useAuthStore.getState().clearAuth();
+}
+
+async function refreshAccessToken() {
+  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+  if (!refreshToken) {
+    throw new Error('refreshToken 不存在');
+  }
+
+  const response = await axios.post(
+    `${baseURL}/auth/refresh`,
+    { refreshToken },
+    { timeout: 20000 }
+  );
+
+  const nextAccessToken = response.data?.data?.accessToken;
+  if (!nextAccessToken) {
+    throw new Error(response.data?.message || 'token 刷新失败');
+  }
+
+  useAuthStore.getState().setAccessToken(nextAccessToken);
+  localStorage.setItem(TOKEN_KEY, nextAccessToken);
+  return nextAccessToken;
+}
+
 instance.interceptors.request.use((config) => {
-  const token = localStorage.getItem('collab_access_token');
+  const token = localStorage.getItem(TOKEN_KEY);
   if (token) {
-    config.headers['Authorization'] = `Bearer ${token}`;
+    config.headers = config.headers || {};
+    config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// 响应拦截器：统一处理业务错误码
 instance.interceptors.response.use(
   (res) => {
-    const { code, data, message } = res.data;
+    const { code, data, message } = res.data || {};
 
     if (code === ERROR_CODES.SUCCESS) {
-      return data; // 直接返回业务数据，业务层无需解包
+      return data;
+    }
+
+    return Promise.reject(new Error(message || '请求失败'));
+  },
+  async (err) => {
+    const originalRequest = err.config || {};
+    const responseData = err.response?.data;
+    const code = responseData?.code;
+    const message = responseData?.message || err.message || '请求失败';
+
+    if (
+      code === ERROR_CODES.UNAUTHORIZED &&
+      !originalRequest._retry &&
+      isRefreshEligible(originalRequest) &&
+      localStorage.getItem(REFRESH_TOKEN_KEY)
+    ) {
+      originalRequest._retry = true;
+
+      try {
+        if (!refreshPromise) {
+          refreshPromise = refreshAccessToken().finally(() => {
+            refreshPromise = null;
+          });
+        }
+        const nextAccessToken = await refreshPromise;
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers.Authorization = `Bearer ${nextAccessToken}`;
+        return instance(originalRequest);
+      } catch (refreshError) {
+        clearAuth();
+        import('../components/Toast').then(({ default: Toast }) => {
+          Toast.info('登录已过期，请重新登录');
+        });
+        redirectToLogin();
+        return Promise.reject(refreshError);
+      }
     }
 
     if (code === ERROR_CODES.UNAUTHORIZED) {
-      // token 失效，清理登录态并跳登录页
-      // 这里直接操作 localStorage 避免循环依赖（store 依赖此文件）
-      localStorage.removeItem('collab_access_token');
-      localStorage.removeItem('collab_refresh_token');
-      localStorage.removeItem('collab_user');
-      window.location.href = '/login';
+      clearAuth();
+      redirectToLogin();
       return Promise.reject(new Error(message));
     }
 
-    // 其他业务错误：弹 Toast 并 reject
+    if (code) {
+      import('../components/Toast').then(({ default: Toast }) => {
+        Toast.error(message || '请求失败');
+      });
+      return Promise.reject(new Error(message));
+    }
+
     import('../components/Toast').then(({ default: Toast }) => {
-      Toast.error(message || '请求失败');
-    });
-    return Promise.reject(new Error(message));
-  },
-  (err) => {
-    // 网络层错误
-    import('../components/Toast').then(({ default: Toast }) => {
-      Toast.error(err.message === 'Network Error' ? '网络异常，请检查连接' : err.message);
+      Toast.error(err.message === 'Network Error' ? '网络异常，请检查连接' : message);
     });
     return Promise.reject(err);
   }

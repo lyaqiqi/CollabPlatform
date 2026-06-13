@@ -306,6 +306,12 @@
   outline-offset: 2px;
 }
 
+/* ========== 评论功能追加样式 ========== */
+.doc-comment-card--active {
+  background-color: rgba(255, 193, 7, 0.08);
+  border-radius: 4px;
+}
+
 /* ---------- 链接 ---------- */
 .doc-editor__content a {
   color: var(--doc-brand);

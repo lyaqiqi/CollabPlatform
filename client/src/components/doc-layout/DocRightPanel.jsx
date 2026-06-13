@@ -202,6 +202,7 @@ function VersionsPanel({
   const handleRestore = (version, num) => {
     if (currentUserRole !== 'owner' && currentUserRole !== 'editor') {
       Modal.warning({ title: '权限不足', content: '只有所有者或编辑者可以恢复版本' });
+
       return;
     }
     const vLabel = version.content_snapshot?.label ? `"${version.content_snapshot.label}"` : `#${num}`;
@@ -494,6 +495,7 @@ export default function DocRightPanel({
   currentUserRole,
   docTitle = '',
   ai,
+
 }) {
   if (!open) return null;
 
