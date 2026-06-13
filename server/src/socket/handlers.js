@@ -128,9 +128,18 @@ function handlers(io, socket, { joinRoom, leaveRoom, broadcastToRoom }) {
     socket.to(`item:${itemId}`).emit('board:cursor', { itemId, userId: socket.data.userId, x, y });
   });
 
-  // TODO: 文档同步事件由 C 在此处注册，参考 join/leave 模式
-  // socket.on('doc:operation', handler)
-  // socket.on('doc:cursor', handler)
+  // 订阅文档树变更房间：用户登录后调用一次，服务端的文件夹/文档增删改后会推送 tree:* 事件
+  socket.on('tree:subscribe', () => {
+    const userId = socket.data.userId;
+    socket.join(`tree:${userId}`);
+    console.log(`[socket] 用户 ${userId} 订阅文档树房间 tree:${userId}`);
+  });
+
+  socket.on('tree:unsubscribe', () => {
+    const userId = socket.data.userId;
+    socket.leave(`tree:${userId}`);
+    console.log(`[socket] 用户 ${userId} 取消订阅文档树房间 tree:${userId}`);
+  });
 }
 
 module.exports = handlers;

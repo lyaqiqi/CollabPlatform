@@ -14,6 +14,13 @@ const QUICK_EMOJI = [
   '📁', '🗒️', '🧩', '🎨', '🌐', '💬',
 ];
 
+/**
+ * 文档标题块：大标题输入 + emoji 图标选择器 + 撤销/重做工具栏。
+ *
+ * Props:
+ *   icon         {string|null}  当前图标 emoji（受控）
+ *   onIconChange {Function}     图标变更回调 (newIcon: string|null) => void
+ */
 export default function DocTitleBlock({
   title,
   onTitleChange,
@@ -21,12 +28,25 @@ export default function DocTitleBlock({
   saving,
   connected,
   undoManager,
+  icon,
+  onIconChange,
+  readOnly = false,
 }) {
   const textareaRef = useRef(null);
   const pickerWrapRef = useRef(null);
-  const [emoji, setEmoji] = useState('📄');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
+
+  // 兼容：外部未传 icon/onIconChange 时降级到本地 state（向后兼容）
+  const [localEmoji, setLocalEmoji] = useState('📄');
+  const emoji = icon !== undefined ? icon : localEmoji;
+  const setEmoji = (v) => {
+    if (typeof onIconChange === 'function') {
+      onIconChange(v);
+    } else {
+      setLocalEmoji(v);
+    }
+  };
 
   /* textarea 高度自动撑开 */
   useEffect(() => {
@@ -56,8 +76,8 @@ export default function DocTitleBlock({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* ── 操作行（hover 时显示，仅在无图标时展示"添加图标"） ── */}
-      {!hasIcon && (
+      {/* ── 操作行（hover 时显示，仅在无图标时展示"添加图标"；只读模式下隐藏） ── */}
+      {!hasIcon && !readOnly && (
         <div className={`doc-title-block__actions${hovered ? ' doc-title-block__actions--visible' : ''}`}>
           <Tooltip title="为文档添加图标" placement="top">
             <button
@@ -131,18 +151,20 @@ export default function DocTitleBlock({
             ref={textareaRef}
             className="doc-title-block__title"
             value={title}
-            onChange={(e) => onTitleChange(e.target.value)}
-            onBlur={onTitleBlur}
+            onChange={readOnly ? undefined : (e) => onTitleChange(e.target.value)}
+            onBlur={readOnly ? undefined : onTitleBlur}
             placeholder="无标题"
             rows={1}
             spellCheck={false}
+            readOnly={readOnly}
+            style={readOnly ? { cursor: 'default', userSelect: 'text' } : undefined}
           />
         </div>
       </div>
 
       {/* ── 工具栏：撤销/重做 + 状态 ── */}
       <div className="doc-title-block__toolbar">
-        {undoManager && (
+        {undoManager && !readOnly && (
           <div className="doc-toolbar">
             <Tooltip title="撤销 (Ctrl+Z)" placement="bottom">
               <button type="button" className="doc-toolbar__btn" onClick={() => undoManager.undo()}>
@@ -160,7 +182,7 @@ export default function DocTitleBlock({
         <div className="doc-title-block__meta">
           <span className={`doc-title-block__status-dot${connected ? ' doc-title-block__status-dot--on' : ''}`} />
           <span className="doc-title-block__status-text">
-            {saving ? '保存中…' : connected ? '协作中' : '连接中…'}
+            {readOnly ? '只读模式' : saving ? '保存中…' : connected ? '协作中' : '连接中…'}
           </span>
         </div>
       </div>

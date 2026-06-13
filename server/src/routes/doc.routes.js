@@ -7,6 +7,7 @@ const {
   getDocSidebarController,
   updateDocController,
   deleteDocController,
+  moveDocToFolderController,
   listDocCommentsController,
   createDocCommentController,
   createCommentReplyController,
@@ -30,6 +31,7 @@ router.get('/:id', getDocController);
 router.get('/:id/sidebar', getDocSidebarController);
 router.put('/:id', updateDocController);
 router.delete('/:id', deleteDocController);
+router.patch('/:id/folder', moveDocToFolderController);
 
 router.get('/:id/comments', listDocCommentsController);
 router.post('/:id/comments', createDocCommentController);

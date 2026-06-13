@@ -16,6 +16,7 @@ import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import Link from '@tiptap/extension-link';
 import TextStyle from '@tiptap/extension-text-style';
 import { Color } from '@tiptap/extension-color';
+import Underline from '@tiptap/extension-underline';
 import { all, createLowlight } from 'lowlight';
 import { Extension } from '@tiptap/core';
 import { Plugin } from '@tiptap/pm/state';
@@ -23,6 +24,7 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import SelectionBubbleMenu from './doc-editor/SelectionBubbleMenu';
 import SlashCommandMenu from './doc-editor/SlashCommandMenu';
 import TableBubbleMenu from './doc-editor/TableBubbleMenu';
+import AIInlineResult from './doc-editor/AIInlineResult';
 import '../styles/doc-editor.css';
 
 const lowlight = createLowlight(all);
@@ -157,6 +159,9 @@ const DocEditor = forwardRef(function DocEditor(
     activeCommentId = null,
     onCreateCommentFromSelection,
     onDocumentOutlineChange,
+    editable = true,
+    onEditorReady,
+    ai,
   },
   ref
 ) {
@@ -197,6 +202,8 @@ const DocEditor = forwardRef(function DocEditor(
         // 文字颜色（TextStyle 是 Color 的依赖）
         TextStyle,
         Color,
+        // 下划线
+        Underline,
       ],
       editorProps: {
         attributes: { class: 'doc-editor__content' },
@@ -252,6 +259,21 @@ const DocEditor = forwardRef(function DocEditor(
     check();
     return () => { editor.off('selectionUpdate', check); editor.off('update', check); };
   }, [editor]);
+
+  /* viewer 只读：动态切换 editable 而不重建编辑器 */
+  useEffect(() => {
+    if (!editor) return;
+    if (editor.isEditable !== editable) {
+      editor.setEditable(editable);
+    }
+  }, [editor, editable]);
+
+  /* 把 editor 实例上抛给父组件（供 AI 助手读取选区/全文） */
+  useEffect(() => {
+    if (typeof onEditorReady !== 'function') return undefined;
+    onEditorReady(editor || null);
+    return () => onEditorReady(null);
+  }, [editor, onEditorReady]);
 
   /* 销毁编辑器 */
   useEffect(() => () => { editor?.destroy(); }, [editor]);
@@ -312,22 +334,38 @@ const DocEditor = forwardRef(function DocEditor(
 
   return (
     <div className="doc-editor doc-editor--immersive">
-      <SelectionBubbleMenu
-        editor={editor}
-        onCreateComment={onCreateCommentFromSelection}
-      />
+      {editable && (
+        <SelectionBubbleMenu
+          editor={editor}
+          onCreateComment={onCreateCommentFromSelection}
+          onAIAction={ai?.runAction}
+          aiLoading={ai?.inlineState?.loading}
+        />
+      )}
 
-      <TableBubbleMenu editor={editor} />
+      {editable && <TableBubbleMenu editor={editor} />}
 
       <EditorContent editor={editor} />
 
-      <SlashCommandMenu
-        open={slashMenu.open}
-        position={{ left: slashMenu.left, top: slashMenu.top }}
-        from={slashMenu.from}
-        editor={editor}
-        onClose={() => setSlashMenu((p) => ({ ...p, open: false }))}
-      />
+      {editable && ai && (
+        <AIInlineResult
+          state={ai.inlineState}
+          onAccept={ai.acceptResult}
+          onInsertAfter={ai.insertAfter}
+          onRetry={ai.retryAction}
+          onDismiss={ai.dismissResult}
+        />
+      )}
+
+      {editable && (
+        <SlashCommandMenu
+          open={slashMenu.open}
+          position={{ left: slashMenu.left, top: slashMenu.top }}
+          from={slashMenu.from}
+          editor={editor}
+          onClose={() => setSlashMenu((p) => ({ ...p, open: false }))}
+        />
+      )}
     </div>
   );
 });

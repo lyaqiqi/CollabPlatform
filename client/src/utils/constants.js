@@ -29,6 +29,18 @@ export const SOCKET_EVENTS = {
   DOC_TITLE_CHANGED: 'doc:title-changed',     // 标题被其他用户修改
   DOC_SIDEBAR_CHANGED: 'doc:sidebar-changed', // 评论/版本有新变更，通知刷新侧边栏
   DOC_VERSION_RESTORED: 'doc:version-restored', // 某用户执行了版本恢复，需全员 reload
+  DOC_ERROR: 'doc:error',                        // 服务端拒绝操作（权限不足等）
 
   BOARD_VERSION_RESTORED: 'board:version-restored',
+
+  // 文档树同步（C — 文件夹/文档增删改后由服务端推送）
+  TREE_SUBSCRIBE: 'tree:subscribe',
+  TREE_UNSUBSCRIBE: 'tree:unsubscribe',
+  TREE_RELOAD: 'tree:reload',
+  TREE_FOLDER_CREATED: 'tree:folder-created',
+  TREE_FOLDER_UPDATED: 'tree:folder-updated',
+  TREE_FOLDER_DELETED: 'tree:folder-deleted',
+  TREE_DOC_CREATED: 'tree:doc-created',
+  TREE_DOC_MOVED: 'tree:doc-moved',
+  TREE_DOC_DELETED: 'tree:doc-deleted',
 };

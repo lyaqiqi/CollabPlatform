@@ -14,7 +14,7 @@ import { useSocket } from '../socket/useSocket';
  * @param {{ user_id: string, username: string }|null} user
  */
 export function useDocCollaboration(itemId, user) {
-  const { connect, joinRoom, leaveRoom, emit, on, off, connected } = useSocket();
+  const { connect, joinRoom, leaveRoom, emit, on, off, connected, status } = useSocket();
   const [collab, setCollab] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
 
@@ -83,5 +83,5 @@ export function useDocCollaboration(itemId, user) {
 
   // 将已正确初始化的 socket emit/on/off 一并暴露，
   // 供调用方（DocPage）直接使用，避免重复调用 useSocket() 导致 socketRef 未同步的问题。
-  return { ...collab, connected, onlineUsers, socketEmit: emit, socketOn: on, socketOff: off };
+  return { ...collab, connected, status, onlineUsers, socketEmit: emit, socketOn: on, socketOff: off };
 }

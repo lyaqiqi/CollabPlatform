@@ -3,9 +3,9 @@ import { Tooltip } from 'antd';
 import {
   CaretRightFilled,
   ClockCircleOutlined,
-  FileTextOutlined,
-  FolderOutlined,
 } from '@ant-design/icons';
+import DocTree from './DocTree';
+import { useTreeSync } from '../../hooks/useTreeSync';
 
 function SectionHeader({ label, collapsed, onToggle }) {
   return (
@@ -23,10 +23,17 @@ function SectionHeader({ label, collapsed, onToggle }) {
   );
 }
 
-export default function DocLeftSidebar({ outlineTree = [], onJumpToOutline, onOpenVersions }) {
+export default function DocLeftSidebar({
+  outlineTree = [],
+  onJumpToOutline,
+  onOpenVersions,
+  currentDocId,
+  onSelectDoc,
+}) {
   const [outlineCollapsed, setOutlineCollapsed] = useState(false);
-  const [kbCollapsed, setKbCollapsed] = useState(false);
-  const [relatedCollapsed, setRelatedCollapsed] = useState(false);
+
+  // 订阅服务端树变更推送，保持文档树与所有标签页/会话实时同步
+  useTreeSync();
 
   return (
     <div className="doc-left-sidebar">
@@ -83,44 +90,9 @@ export default function DocLeftSidebar({ outlineTree = [], onJumpToOutline, onOp
         </div>
       </div>
 
-      {/* ── 知识库层级 ── */}
-      <div className="doc-left-sidebar__section" style={{ marginTop: 8 }}>
-        <SectionHeader
-          label="知识库"
-          collapsed={kbCollapsed}
-          onToggle={() => setKbCollapsed((p) => !p)}
-        />
-        <div
-          className={`doc-left-sidebar__section-content${kbCollapsed ? ' doc-left-sidebar__section-content--collapsed' : ''}`}
-          style={{ maxHeight: kbCollapsed ? 0 : 200 }}
-        >
-          {['团队规范', '产品方案', '迭代计划'].map((name) => (
-            <div key={name} className="doc-sidebar-list-item">
-              <FolderOutlined className="doc-sidebar-list-icon" />
-              <span>{name}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── 关联文档 ── */}
-      <div className="doc-left-sidebar__section" style={{ marginTop: 8 }}>
-        <SectionHeader
-          label="关联文档"
-          collapsed={relatedCollapsed}
-          onToggle={() => setRelatedCollapsed((p) => !p)}
-        />
-        <div
-          className={`doc-left-sidebar__section-content${relatedCollapsed ? ' doc-left-sidebar__section-content--collapsed' : ''}`}
-          style={{ maxHeight: relatedCollapsed ? 0 : 200 }}
-        >
-          {['需求评审记录', '接口设计说明', '测试用例集'].map((name) => (
-            <div key={name} className="doc-sidebar-list-item">
-              <FileTextOutlined className="doc-sidebar-list-icon" />
-              <span>{name}</span>
-            </div>
-          ))}
-        </div>
+      {/* ── 知识库（文档树/文件夹） ── */}
+      <div className="doc-left-sidebar__section" style={{ marginTop: 8, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <DocTree currentDocId={currentDocId} onSelectDoc={onSelectDoc} />
       </div>
 
       {/* ── 底部：历史记录入口 ── */}

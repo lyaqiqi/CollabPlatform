@@ -70,4 +70,16 @@ function broadcastToRoom(itemId, event, data, exceptSocketId) {
   }
 }
 
-module.exports = { initSocket, joinRoom, leaveRoom, broadcastToRoom };
+/**
+ * 向某用户的文档树房间广播变更事件。
+ * 房间名格式：tree:{userId}，用户登录的所有标签页均在该房间中。
+ * @param {string} userId
+ * @param {string} event  TREE_* 事件名
+ * @param {object} data
+ */
+function broadcastToTreeRoom(userId, event, data) {
+  if (!io) throw new Error('Socket.io 尚未初始化');
+  io.to(`tree:${userId}`).emit(event, data);
+}
+
+module.exports = { initSocket, joinRoom, leaveRoom, broadcastToRoom, broadcastToTreeRoom };

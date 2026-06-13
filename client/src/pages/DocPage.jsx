@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Button, Modal, Radio, Spin } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeftOutlined } from '@ant-design/icons';
+import { SocketStatus } from '../socket/useSocket';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
 import DocEditor from '../components/DocEditor';
@@ -11,6 +12,7 @@ import DocLeftSidebar from '../components/doc-layout/DocLeftSidebar';
 import DocRightPanel from '../components/doc-layout/DocRightPanel';
 import DocTitleBlock from '../components/doc-layout/DocTitleBlock';
 import Loading from '../components/Loading';
+import VersionPreviewEditor from '../components/doc-editor/VersionPreviewEditor';
 import {
   createDocComment,
   createCommentReply,
@@ -22,8 +24,10 @@ import {
   resolveDocComment,
   restoreDocVersion,
   updateDoc,
+  upsertDocMemberRole,
 } from '../api/doc.api';
 import { useDocCollaboration } from '../hooks/useDocCollaboration';
+import { useAIAssistant } from '../hooks/useAIAssistant';
 import { SOCKET_EVENTS } from '../utils/constants';
 import useAuthStore from '../store/authStore';
 import { applyPersistedYjsState, encodeYjsState } from '../collab/yjsUtils';
@@ -69,13 +73,12 @@ turndown.use(gfm);  // 启用 GFM：表格、任务列表、删除线等
  *   emit('doc:cursor', { position });
  */
 
-// TODO: 后续补充文档编辑功能（富文本编辑器 + Socket 实时同步）
 function DocPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const {
-    ydoc, provider, color, undoManager, connected, onlineUsers,
+    ydoc, provider, color, undoManager, connected, status: socketStatus, onlineUsers,
     socketEmit, socketOn, socketOff,
   } = useDocCollaboration(id, user);
 
@@ -84,6 +87,7 @@ function DocPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [title, setTitle] = useState('');
+  const [docIcon, setDocIcon] = useState(null);   // emoji 图标，null 表示无图标
   const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -104,11 +108,17 @@ function DocPage() {
   const saveTimerRef = useRef(null);
   const ydocRef = useRef(null);
   const titleRef = useRef('');     // 始终保存最新 title，避免 closure 捕获旧值
+  const iconRef = useRef(null);    // 始终保存最新 icon，供 persistDoc 读取
   const hydratedRef = useRef(false); // 始终保存最新 hydrated，供 cleanup 判断
   const editorRef = useRef(null);
 
   const [previewVersion, setPreviewVersion] = useState(null);
   const sidebarRequestRef = useRef(null);
+
+  /* ── AI 助手 ── */
+  const [aiEditor, setAiEditor] = useState(null);   // 由 DocEditor 上抛的编辑器实例
+  const ai = useAIAssistant(aiEditor);
+
 
   const handlePreviewVersion = useCallback((version) => {
     setPreviewVersion(version);
@@ -120,6 +130,7 @@ function DocPage() {
 
   useEffect(() => { ydocRef.current = ydoc; }, [ydoc]);
   useEffect(() => { hydratedRef.current = hydrated; }, [hydrated]);
+  useEffect(() => { iconRef.current = docIcon; }, [docIcon]);
 
   /* 加载文档元数据 */
   useEffect(() => {
@@ -134,6 +145,9 @@ function DocPage() {
         setDocMeta(doc);
         setTitle(doc.title);
         titleRef.current = doc.title;
+        const savedIcon = doc.content_data?.icon ?? '📄';
+        setDocIcon(savedIcon);
+        iconRef.current = savedIcon;
       } catch (err) {
         if (!cancelled) setError(err?.message || '加载文档失败');
       } finally {
@@ -167,17 +181,34 @@ function DocPage() {
       refreshSidebarQuiet();
     };
 
+    // 4. 服务端拒绝操作（权限不足等）
+    const onDocError = ({ message }) => {
+      Toast.error(message || '操作被拒绝，请检查您的权限');
+    };
+
     socketOn(SOCKET_EVENTS.DOC_VERSION_RESTORED, onVersionRestored);
     socketOn(SOCKET_EVENTS.DOC_TITLE_CHANGED, onTitleChanged);
     socketOn(SOCKET_EVENTS.DOC_SIDEBAR_CHANGED, onSidebarChanged);
+    socketOn(SOCKET_EVENTS.DOC_ERROR, onDocError);
 
     return () => {
       socketOff(SOCKET_EVENTS.DOC_VERSION_RESTORED, onVersionRestored);
       socketOff(SOCKET_EVENTS.DOC_TITLE_CHANGED, onTitleChanged);
       socketOff(SOCKET_EVENTS.DOC_SIDEBAR_CHANGED, onSidebarChanged);
+      socketOff(SOCKET_EVENTS.DOC_ERROR, onDocError);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, socketOn, socketOff]);
+
+  /* ── 重连 UX：状态变化时显示提示 ── */
+  const prevSocketStatusRef = useRef(socketStatus);
+  useEffect(() => {
+    const prev = prevSocketStatusRef.current;
+    prevSocketStatusRef.current = socketStatus;
+    if (socketStatus === SocketStatus.RECOVERED && prev !== SocketStatus.RECOVERED) {
+      Toast.success('已恢复同步');
+    }
+  }, [socketStatus]);
 
   /* 加载协作面板数据（内部实现，供带/不带 loading 的两个版本共用） */
   const fetchSidebar = useCallback(async () => {
@@ -235,14 +266,17 @@ function DocPage() {
     try {
       await updateDoc(id, {
         title: titleRef.current,
-        content_data: { yjs_state: encodeYjsState(currentYdoc) },
+        content_data: {
+          yjs_state: encodeYjsState(currentYdoc),
+          icon: iconRef.current,
+        },
       });
     } catch (err) {
       Toast.error(err?.message || '保存失败');
     } finally {
       setSaving(false);
     }
-  }, [id]);   // 不依赖 title，读 ref 即可
+  }, [id]);   // 不依赖 title/icon，读 ref 即可
 
   const scheduleSave = useCallback(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -276,10 +310,7 @@ function DocPage() {
       if (hasChangesRef.current && now - lastAutoSaveRef.current > 30000) {
         lastAutoSaveRef.current = now;
         hasChangesRef.current = false;
-        // 复用已有的 persistDoc 保存内容，但不创建 Version 记录
-        // 如果需要同时创建 Version 记录，调用 handleCreateCheckpoint('自动保存')
-        // persistDoc();
-        handleCreateCheckpoint('自动保存').catch(() => {});
+        persistDoc().catch(() => {});
       }
     }, 30000);
     return () => clearInterval(timer);
@@ -301,7 +332,7 @@ function DocPage() {
       if (cur && id && hydratedRef.current) {
         updateDoc(id, {
           title: titleRef.current,
-          content_data: { yjs_state: encodeYjsState(cur) },
+          content_data: { yjs_state: encodeYjsState(cur), icon: iconRef.current },
         }).catch(() => {});
       }
     };
@@ -333,16 +364,16 @@ function DocPage() {
     } finally {
       setCheckpointSaving(false);
     }
-  }, [id, persistDoc, refreshSidebar, title, user?.user_id]);
+  }, [id, persistDoc, refreshSidebar, user?.user_id]);
 
   /* 版本恢复 */
   const handleRestoreVersion = useCallback(async (versionId) => {
     if (!id || !versionId) return;
-    const currentRole = sidebarData.members.find(
-      (m) => m.user_id === user?.user_id
-    )?.role;
-    if (currentRole !== 'owner') {
-      Toast.error('只有文档所有者可以恢复版本');
+    const currentRole = docMeta?.owner_id === user?.user_id
+      ? 'owner'
+      : sidebarData.members.find((m) => m.user_id === user?.user_id)?.role;
+    if (currentRole !== 'owner' && currentRole !== 'editor') {
+      Toast.error('只有所有者或编辑者可以恢复版本');
       return;
     }
     try {
@@ -355,13 +386,13 @@ function DocPage() {
     }
   }, [id, sidebarData.members, user?.user_id, socketEmit]);
 
-  /* 解决评论 */
-  const handleResolveComment = useCallback(async (commentId) => {
+  /* 切换评论解决状态（resolved=true 标记解决，resolved=false 重新开启） */
+  const handleToggleResolveComment = useCallback(async (commentId, resolved) => {
     if (!id || !commentId) return;
     try {
-      await resolveDocComment(id, commentId, { is_resolved: true });
-      Toast.success('评论已标记为解决');
-      if (activeCommentId === commentId) setActiveCommentId(null);
+      await resolveDocComment(id, commentId, { is_resolved: resolved });
+      Toast.success(resolved ? '评论已标记为解决' : '评论已重新开启');
+      if (resolved && activeCommentId === commentId) setActiveCommentId(null);
       await refreshSidebar();
       socketEmit(SOCKET_EVENTS.DOC_SIDEBAR_CHANGED, { itemId: id });
     } catch (err) {
@@ -515,11 +546,51 @@ function DocPage() {
     }
   }, [id, refreshSidebar]);
 
+  /* 修改成员角色 */
+  const handleUpdateMemberRole = useCallback(async (targetUserId, role) => {
+    if (!id) return;
+    try {
+      await upsertDocMemberRole(id, targetUserId, { role });
+      Toast.success('角色已更新');
+      await refreshSidebar();
+    } catch (err) {
+      Toast.error(err?.message || '更新角色失败');
+    }
+  }, [id, refreshSidebar]);
+
   /* 打开右侧面板 */
   const openRightPanel = useCallback((tabKey) => {
     if (tabKey) setRightPanelTab(tabKey);
     setRightPanelOpen(true);
   }, []);
+
+  /* AI 助手入口：打开右侧面板的 AI 对话 Tab */
+  const handleAI = useCallback(() => {
+    openRightPanel('ai');
+  }, [openRightPanel]);
+
+  /* 当前用户角色（owner > editor > viewer；用于只读模式和权限控制） */
+  const currentUserRole = (() => {
+    if (!user) return null;
+    if (docMeta?.owner_id === user.user_id) return 'owner';
+    return sidebarData.members.find((m) => m.user_id === user.user_id)?.role ?? null;
+  })();
+  const isViewer = currentUserRole === 'viewer';
+
+  /* ── 面包屑导航（动态计算） ── */
+  const breadcrumb = (() => {
+    // 首段：若当前用户是文档所有者显示"我的文档"，否则显示"共享文档"
+    const isOwner = docMeta && user && docMeta.owner_id === user.user_id;
+    return [
+      {
+        label: isOwner ? '我的文档' : '共享文档',
+        onClick: () => navigate('/'),
+      },
+      {
+        label: title || '未命名文档',
+      },
+    ];
+  })();
 
   /* ── 加载中 ── */
   if (loading) return <Loading />;
@@ -543,7 +614,7 @@ function DocPage() {
         header={
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
             <DocImmersiveHeader
-              title={title}
+              breadcrumb={breadcrumb}
               onlineUsers={onlineUsers}
               onToggleLeft={() => setLeftCollapsed((p) => !p)}
               leftCollapsed={leftCollapsed}
@@ -552,6 +623,7 @@ function DocPage() {
               onOpenSearch={() => openRightPanel('search')}
               onShare={handleShare}
               onExport={handleExport}
+              onAI={handleAI}
             />
             <Button 
               type="default" 
@@ -568,11 +640,18 @@ function DocPage() {
             outlineTree={outlineTree}
             onJumpToOutline={(pos) => editorRef.current?.jumpToPosition?.({ from: pos, to: pos + 1 })}
             onOpenVersions={() => openRightPanel('versions')}
+            currentDocId={id}
+            onSelectDoc={(docId) => { if (docId !== id) navigate(`/doc/${docId}`); }}
           />
         }
         center={
           <div className="doc-center-canvas">
-            {!connected && (
+            {socketStatus === SocketStatus.RECONNECTING && (
+              <div className="doc-offline-banner doc-offline-banner--reconnecting">
+                协作通道断开，正在重连…本地编辑将在重连后自动同步
+              </div>
+            )}
+            {socketStatus === SocketStatus.DISCONNECTED && !connected && (
               <div className="doc-offline-banner">
                 协作通道已断开，本地编辑将在重新连接后自动同步…
               </div>
@@ -585,6 +664,9 @@ function DocPage() {
               saving={saving}
               connected={connected}
               undoManager={undoManager}
+              icon={docIcon}
+              onIconChange={(v) => { setDocIcon(v); iconRef.current = v; scheduleSave(); }}
+              readOnly={isViewer}
             />
 
             <div className="doc-content-divider" />
@@ -602,10 +684,13 @@ function DocPage() {
                 color={color}
                 undoManager={undoManager}
                 onSelectionChange={setCurrentSelection}
-                onCreateCommentFromSelection={() => openRightPanel('comments')}
+                onCreateCommentFromSelection={isViewer ? undefined : () => openRightPanel('comments')}
                 onDocumentOutlineChange={setOutlineTree}
                 commentAnchors={sidebarData.comments}
                 activeCommentId={activeCommentId}
+                editable={!isViewer}
+                onEditorReady={setAiEditor}
+                ai={ai}
               />
             )}
           </div>
@@ -623,21 +708,24 @@ function DocPage() {
             outline={outlineTree}
             checkpointSaving={checkpointSaving}
             onCreateCheckpoint={handleCreateCheckpoint}
-            onResolveComment={handleResolveComment}
-            onCreateComment={handleCreateComment}
+            onToggleResolveComment={handleToggleResolveComment}
+            onCreateComment={isViewer ? undefined : handleCreateComment}
             onJumpToComment={handleJumpToComment}
-            onCreateReply={handleCreateReply}
+            onCreateReply={isViewer ? undefined : handleCreateReply}
             onRestoreVersion={handleRestoreVersion}
             onSearchInDoc={handleSearchInDoc}
             onJumpToDocResult={handleJumpToDocResult}
             onJumpToOutline={handleJumpToOutlineFromSearch}
             onInviteMember={handleInviteMember}
             onRemoveMember={handleRemoveMember}
+            onUpdateMemberRole={handleUpdateMemberRole}
             currentSelection={currentSelection}
             creatingComment={creatingComment}
             activeCommentId={activeCommentId}
             onPreviewVersion={handlePreviewVersion}
-            currentUserRole={sidebarData.members.find(m => m.user_id === user?.user_id)?.role}
+            currentUserRole={currentUserRole}
+            docTitle={title}
+            ai={ai}
           />
         }
       />
@@ -652,7 +740,7 @@ function DocPage() {
             <Button key="close" onClick={handleClosePreview}>
               关闭
             </Button>,
-            sidebarData.members.find(m => m.user_id === user?.user_id)?.role === 'owner' && (
+            (currentUserRole === 'owner' || currentUserRole === 'editor') && (
               <Button
                 key="restore"
                 type="primary"
@@ -666,27 +754,45 @@ function DocPage() {
               </Button>
             ),
           ].filter(Boolean)}
-          width={720}
+          width={760}
+          styles={{ body: { padding: '12px 0 0' } }}
         >
-          <div style={{ maxHeight: 480, overflow: 'auto', padding: '8px 0' }}>
-            <h3 style={{ marginTop: 0 }}>
+          <div style={{ padding: '0 24px 4px' }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 600 }}>
               {previewVersion.content_snapshot?.title || '未命名文档'}
             </h3>
-            <div style={{ 
-              background: '#f5f5f5', 
-              padding: 16, 
-              borderRadius: 8,
-              fontSize: 14,
-              lineHeight: 1.8,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-            }}>
-              {previewVersion.content_snapshot?.text_preview || '（该版本没有文本预览）'}
+            <div style={{ fontSize: 12, color: '#888', marginBottom: 12 }}>
+              标签：{previewVersion.content_snapshot?.label || '手动快照'}
+              &emsp;创建者：{previewVersion.content_snapshot?.created_by || '未知'}
             </div>
-            <div style={{ marginTop: 12, fontSize: 12, color: '#888' }}>
-              创建者: {previewVersion.content_snapshot?.created_by || '未知'} · 
-              标签: {previewVersion.content_snapshot?.label || '手动快照'}
-            </div>
+          </div>
+          <div
+            style={{
+              maxHeight: 520,
+              overflow: 'auto',
+              borderTop: '1px solid #f0f0f0',
+              padding: '12px 24px',
+            }}
+          >
+            {previewVersion.content_snapshot?.yjs_state ? (
+              <VersionPreviewEditor
+                yjsState={previewVersion.content_snapshot.yjs_state}
+              />
+            ) : (
+              <div
+                style={{
+                  background: '#f5f5f5',
+                  padding: 16,
+                  borderRadius: 8,
+                  fontSize: 14,
+                  lineHeight: 1.8,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {previewVersion.content_snapshot?.text_preview || '（该版本没有文本预览）'}
+              </div>
+            )}
           </div>
         </Modal>
       )}
