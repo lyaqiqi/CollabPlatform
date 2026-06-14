@@ -1,8 +1,9 @@
 import { Layout, Typography, Space, Button, Card, Tag, Input, Modal, Empty, List, Tooltip } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeftOutlined } from '@ant-design/icons'; 
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { ArrowLeftOutlined } from '@ant-design/icons';
+import { useParams, useNavigate } from 'react-router-dom';
 import { fabric } from 'fabric';
+import * as Y from 'yjs';
 import {
   HistoryOutlined,
   CloseOutlined,
@@ -21,7 +22,9 @@ import {
   restoreBoardVersion,
 } from '../api/board.api';
 import useAuthStore from '../store/authStore';
-import { useSocket, SocketStatus } from '../socket/useSocket';
+import { useBoardCollaboration } from '../hooks/useBoardCollaboration';
+import { SocketStatus } from '../socket/useSocket';
+import { applyPersistedYjsState, encodeYjsState } from '../collab/yjsUtils';
 import { SOCKET_EVENTS } from '../utils/constants';
 
 const { Content } = Layout;
@@ -45,10 +48,6 @@ function hashColor(input) {
   return `hsl(${hue} 80% 45%)`;
 }
 
-function serializeCanvas(canvas) {
-  return JSON.stringify(canvas.toJSON());
-}
-
 function safeParseJson(str) {
   try {
     return JSON.parse(str);
@@ -68,10 +67,46 @@ function formatTime(value) {
   }
 }
 
+function ensureFabricId(obj) {
+  if (!obj.__yjsId) {
+    obj.__yjsId = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  }
+  return obj.__yjsId;
+}
+
+function fabricToYjs(obj) {
+  const json = obj.toJSON();
+  json.__yjsId = obj.__yjsId;
+  delete json.canvas;
+  return json;
+}
+
+function yjsToFabric(data) {
+  const { __yjsId, ...fabricData } = data;
+  return new Promise((resolve) => {
+    fabric.util.enlivenObjects([fabricData], ([obj]) => {
+      if (obj) obj.__yjsId = __yjsId;
+      resolve(obj);
+    });
+  });
+}
+
 function BoardPage() {
   const { id } = useParams();
   const { user } = useAuthStore();
-  const { connect, joinRoom, leaveRoom, emit, on, off, status: socketStatus } = useSocket();
+  const navigate = useNavigate();
+
+  const {
+    ydoc,
+    yObjects,
+    yMeta,
+    provider,
+    connected,
+    status: socketStatus,
+    onlineUsers,
+  } = useBoardCollaboration(id, user);
+
+  const awareness = provider?.awareness;
 
   const containerRef = useRef(null);
   const canvasElRef = useRef(null);
@@ -80,14 +115,7 @@ function BoardPage() {
   const drawingRef = useRef({ isDown: false, startX: 0, startY: 0, tempObj: null });
   const toolRef = useRef(TOOLS.SELECT);
   const lastCursorSentAtRef = useRef(0);
-  const joinedRef = useRef(false);
-  const saveTimerRef = useRef(null);
-  const syncTimerRef = useRef(null);
-  const historyRef = useRef({ stack: [], index: -1 });
-  const previewBackupRef = useRef(null);
-  const lastAutoSnapshotRef = useRef(null);   // ← 上次自动保存的快照内容
-  const lastAutoSaveTimeRef = useRef(0);      // ← 上次自动保存的时间戳
-  const navigate = useNavigate();
+  const initializedRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [board, setBoard] = useState(null);
@@ -98,9 +126,11 @@ function BoardPage() {
   const [versions, setVersions] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [previewingVersion, setPreviewingVersion] = useState(null);
-  const [savingManual, setSavingManual] = useState(false);   // ← 手动保存loading
+  const [savingManual, setSavingManual] = useState(false);
 
   toolRef.current = tool;
+
+  const localMapRef = useRef(new Map());
 
   const connectionTag = useMemo(() => {
     if (socketStatus === SocketStatus.CONNECTED || socketStatus === SocketStatus.RECOVERED) {
@@ -111,112 +141,6 @@ function BoardPage() {
     return <Tag>未连接</Tag>;
   }, [socketStatus]);
 
-  const takeSnapshot = useCallback(() => {
-    const canvas = fabricRef.current;
-    if (!canvas) return;
-    const { stack, index } = historyRef.current;
-    const snapshot = serializeCanvas(canvas);
-    const nextStack = stack.slice(0, index + 1);
-    nextStack.push(snapshot);
-    const capped = nextStack.slice(-50);
-    historyRef.current = { stack: capped, index: capped.length - 1 };
-  }, []);
-
-  const applySnapshot = useCallback(
-    (snapshotStr, { emitSync, save } = { emitSync: true, save: true }) => {
-      const canvas = fabricRef.current;
-      const parsed = safeParseJson(snapshotStr);
-      if (!canvas || !parsed) return;
-      applyingRemoteRef.current = true;
-      canvas.loadFromJSON(parsed, () => {
-        canvas.renderAll();
-        applyingRemoteRef.current = false;
-        if (emitSync) {
-          emit(SOCKET_EVENTS.BOARD_SYNC, { itemId: id, canvas: snapshotStr });
-        }
-        if (save) {
-          setDirty(true);
-          if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-          saveTimerRef.current = setTimeout(() => {
-            updateBoard(id, { title, content_data: { canvas: snapshotStr } }).catch(() => {});
-            setDirty(false);
-          }, 1200);
-        }
-      });
-    },
-    [emit, id, title]
-  );
-
-  const scheduleSyncAndSave = useCallback(() => {
-    const canvas = fabricRef.current;
-    if (!canvas) return;
-    if (applyingRemoteRef.current) return;
-
-    setDirty(true);
-
-    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
-    syncTimerRef.current = setTimeout(() => {
-      const snapshotStr = serializeCanvas(canvas);
-      emit(SOCKET_EVENTS.BOARD_SYNC, { itemId: id, canvas: snapshotStr });
-    }, 120);
-
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      const snapshotStr = serializeCanvas(canvas);
-      updateBoard(id, { title, content_data: { canvas: snapshotStr } }).catch(() => {});
-      setDirty(false);
-    }, 1200);
-  }, [emit, id, title]);
-
-  const saveNow = useCallback(() => {
-    const canvas = fabricRef.current;
-    if (!canvas) return;
-    const snapshotStr = serializeCanvas(canvas);
-    updateBoard(id, { title, content_data: { canvas: snapshotStr } })
-      .then(() => {
-        setDirty(false);
-        Toast.success('已保存');
-      })
-      .catch((e) => Toast.error(e.message || '保存失败'));
-  }, [id, title]);
-
-  const exportPng = useCallback(() => {
-    const canvas = fabricRef.current;
-    if (!canvas) return;
-    const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 2 });
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = `${title || 'whiteboard'}.png`;
-    a.click();
-  }, [title]);
-
-  const deleteSelected = useCallback(() => {
-    const canvas = fabricRef.current;
-    if (!canvas) return;
-    const active = canvas.getActiveObjects();
-    if (!active.length) return;
-    active.forEach((obj) => canvas.remove(obj));
-    canvas.discardActiveObject();
-    canvas.requestRenderAll();
-    takeSnapshot();
-    scheduleSyncAndSave();
-  }, [scheduleSyncAndSave, takeSnapshot]);
-
-  const undo = useCallback(() => {
-    const { stack, index } = historyRef.current;
-    if (index <= 0) return;
-    historyRef.current = { stack, index: index - 1 };
-    applySnapshot(stack[index - 1]);
-  }, [applySnapshot]);
-
-  const redo = useCallback(() => {
-    const { stack, index } = historyRef.current;
-    if (index >= stack.length - 1) return;
-    historyRef.current = { stack, index: index + 1 };
-    applySnapshot(stack[index + 1]);
-  }, [applySnapshot]);
-
-  /* ─────────────── 版本快照相关 ─────────────── */
   const fetchVersions = useCallback(async () => {
     try {
       const data = await listBoardVersions(id);
@@ -226,138 +150,7 @@ function BoardPage() {
     }
   }, [id]);
 
-  const handlePreviewVersion = useCallback(
-    (version) => {
-      const canvas = fabricRef.current;
-      if (!canvas) return;
-      const snapshot = version.content_snapshot;
-      if (!snapshot?.canvas) {
-        Toast.error('该版本没有可预览的内容');
-        return;
-      }
-      if (!previewingVersion) {
-        previewBackupRef.current = serializeCanvas(canvas);
-      }
-      setPreviewingVersion(version);
-      applyingRemoteRef.current = true;
-      const parsed = safeParseJson(snapshot.canvas);
-      if (parsed) {
-        canvas.loadFromJSON(parsed, () => {
-          canvas.renderAll();
-          applyingRemoteRef.current = false;
-        });
-      } else {
-        applyingRemoteRef.current = false;
-      }
-    },
-    [previewingVersion]
-  );
-
-  const handleExitPreview = useCallback(() => {
-    const canvas = fabricRef.current;
-    if (!canvas) return;
-    setPreviewingVersion(null);
-    const backup = previewBackupRef.current;
-    if (backup) {
-      applyingRemoteRef.current = true;
-      const parsed = safeParseJson(backup);
-      canvas.loadFromJSON(parsed, () => {
-        canvas.renderAll();
-        applyingRemoteRef.current = false;
-        previewBackupRef.current = null;
-      });
-    }
-  }, []);
-
-  const handleRestoreVersion = useCallback(
-    (versionId) => {
-      if (board?.owner_id !== user?.user_id) {
-        Modal.warning({ title: '权限不足', content: '仅白板所有者可恢复版本' });
-        return;
-      }
-      const version = versions.find((v) => v.version_id === versionId);
-      const idx = versions.findIndex((v) => v.version_id === versionId);
-      const num = versions.length - idx;
-      const vLabel = version?.content_snapshot?.label || `版本 #${num}`;
-      Modal.confirm({
-        title: '确认恢复版本',
-        content: `恢复后白板内容将回滚到 ${vLabel}，当前内容将被覆盖。确定继续？`,
-        okText: '恢复',
-        okButtonProps: { danger: true },
-        cancelText: '取消',
-        onOk: async () => {
-          try {
-            await restoreBoardVersion(id, versionId);
-            Toast.success('版本恢复成功');
-            const data = await getBoard(id);
-            setBoard(data);
-            setTitle(data.title || '');
-            setPreviewingVersion(null);
-            previewBackupRef.current = null;
-            lastAutoSnapshotRef.current = null;   // ← 重置自动保存基准
-            fetchVersions();
-          } catch (e) {
-            Toast.error(e.message || '恢复失败');
-          }
-        },
-      });
-    },
-    [board?.owner_id, user?.user_id, id, versions, fetchVersions]
-  );
-
-  /* ─────────────── 手动保存版本 ─────────────── */
-  const handleManualSave = useCallback(() => {
-    const canvas = fabricRef.current;
-    if (!canvas) return;
-
-    let label = '';
-
-    Modal.confirm({
-      title: '保存版本快照',
-      content: (
-        <Input
-          placeholder="版本备注（可选）"
-          id="manual-version-label"
-          maxLength={50}
-          style={{ marginTop: 8 }}
-          onPressEnter={() => {
-            const btn = document.querySelector('.ant-modal-confirm-btns .ant-btn-primary');
-            if (btn) btn.click();
-          }}
-        />
-      ),
-      okText: '保存',
-      cancelText: '取消',
-      onOk: async () => {
-        label = document.getElementById('manual-version-label')?.value?.trim() || '手动保存';
-
-        setSavingManual(true);
-        try {
-          const snapshotStr = serializeCanvas(canvas);
-          await createBoardVersion(id, {
-            content_snapshot: {
-              canvas: snapshotStr,
-              title: title || '未命名白板',
-              type: 'manual_checkpoint',
-              created_by: user?.user_id,
-              label,
-            },
-          });
-          // 更新自动保存基准，避免手动保存后立即又自动保存
-          lastAutoSnapshotRef.current = snapshotStr;
-          lastAutoSaveTimeRef.current = Date.now();
-          Toast.success(`版本"${label}"已保存`);
-          fetchVersions();
-        } catch (e) {
-          Toast.error(e.message || '保存失败');
-        } finally {
-          setSavingManual(false);
-        }
-      },
-    });
-  }, [id, title, user?.user_id, fetchVersions]);
-
-  /* ─────────────── 初始化：加载白板 & 版本列表 ─────────────── */
+  // ========== 加载白板数据 ==========
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -379,7 +172,25 @@ function BoardPage() {
     };
   }, [id, fetchVersions]);
 
-  /* ─────────────── Fabric 画布初始化 ─────────────── */
+  // ========== 标题同步 ==========
+  useEffect(() => {
+    if (!yMeta) return;
+    yMeta.set('title', title);
+  }, [title, yMeta]);
+
+  useEffect(() => {
+    if (!yMeta) return;
+    const handler = () => {
+      const remoteTitle = yMeta.get('title');
+      if (remoteTitle && remoteTitle !== title) {
+        setTitle(remoteTitle);
+      }
+    };
+    yMeta.observe(handler);
+    return () => yMeta.unobserve(handler);
+  }, [yMeta, title]);
+
+  // ========== Fabric 画布初始化 ==========
   useEffect(() => {
     if (!canvasElRef.current) return;
     if (fabricRef.current) return;
@@ -401,25 +212,227 @@ function BoardPage() {
     });
     if (containerRef.current) ro.observe(containerRef.current);
 
-    const onChanged = () => {
-      if (applyingRemoteRef.current) return;
-      takeSnapshot();
-      scheduleSyncAndSave();
-    };
-
-    canvas.on('object:added', onChanged);
-    canvas.on('object:modified', onChanged);
-    canvas.on('object:removed', onChanged);
-    canvas.on('path:created', onChanged);
-
     return () => {
       ro.disconnect();
       canvas.dispose();
       fabricRef.current = null;
+      initializedRef.current = false;
     };
-  }, [scheduleSyncAndSave, takeSnapshot]);
+  }, []);
 
-  /* ─────────────── 工具切换 ─────────────── */
+  // ========== 组件卸载清理 ==========
+  useEffect(() => {
+    return () => {
+      initializedRef.current = false;
+      localMapRef.current.clear();
+    };
+  }, [id]);
+
+  // ========== 数据迁移（修复闭包陷阱）==========
+  const boardRef = useRef(null);
+  const migratedRef = useRef(false);
+
+  useEffect(() => {
+    boardRef.current = board;
+  }, [board]);
+
+  useEffect(() => {
+    if (!ydoc || !boardRef.current?.content_data?.canvas) return;
+    if (migratedRef.current) return;
+
+    const yObjects = ydoc.getArray('objects');
+    if (yObjects.length > 0) {
+      migratedRef.current = true;
+      return;
+    }
+
+    const snapshotStr = boardRef.current.content_data.canvas;
+    console.log('[Board] 尝试迁移数据');
+
+    try {
+      const parsed = JSON.parse(snapshotStr);
+      if (parsed?.objects?.length > 0) {
+        ydoc.transact(() => {
+          parsed.objects.forEach((objData) => {
+            const yMap = new Y.Map();
+            const yjsId = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+            yMap.set('__yjsId', yjsId);
+            Object.entries(objData).forEach(([k, v]) => {
+              if (k !== '__yjsId') yMap.set(k, v);
+            });
+            yObjects.push([yMap]);
+          });
+        }, 'persisted');
+        console.log('[Board] 从旧 JSON 迁移完成，对象数:', parsed.objects.length);
+        migratedRef.current = true;
+        return;
+      }
+    } catch {
+      // 不是 JSON
+    }
+
+    try {
+      applyPersistedYjsState(ydoc, snapshotStr);
+      console.log('[Board] 从 Yjs base64 恢复完成');
+      migratedRef.current = true;
+    } catch (e) {
+      console.error('[Board] 迁移失败:', e);
+    }
+  }, [ydoc]);
+
+  // ========== Yjs <-> Fabric 双向绑定 ==========
+  useEffect(() => {
+    if (!yObjects || !fabricRef.current) return;
+    if (initializedRef.current) return;
+
+    const canvas = fabricRef.current;
+    const localMap = localMapRef.current;
+
+    console.log('[Board] Yjs-Fabric 绑定开始, yObjects.length:', yObjects.length);
+
+    const handleYjsChange = async (events, transaction) => {
+      if (applyingRemoteRef.current) return;
+      if (transaction && transaction.local) return;
+
+      applyingRemoteRef.current = true;
+
+      const yjsIds = new Set();
+      const yjsArray = yObjects.toArray();
+      yjsArray.forEach((yMap) => {
+        const yjsId = yMap.get('__yjsId');
+        if (yjsId) yjsIds.add(yjsId);
+      });
+
+      const toRemove = [];
+      canvas.getObjects().forEach((obj) => {
+        const yjsId = obj.__yjsId;
+        if (yjsId && !yjsIds.has(yjsId)) {
+          toRemove.push(obj);
+          localMap.delete(yjsId);
+        }
+      });
+      toRemove.forEach((obj) => canvas.remove(obj));
+
+      for (let i = 0; i < yjsArray.length; i++) {
+        const yMap = yjsArray[i];
+        const data = yMap.toJSON();
+        const yjsId = data.__yjsId;
+        if (!yjsId) continue;
+
+        let obj = localMap.get(yjsId);
+        if (!obj) {
+          obj = await yjsToFabric(data);
+          if (!obj) continue;
+          localMap.set(yjsId, obj);
+          canvas.add(obj);
+          obj.moveTo(i);
+        } else {
+          const { __yjsId: _, ...newProps } = data;
+          obj.set(newProps);
+          obj.setCoords();
+          const currentIdx = canvas.getObjects().indexOf(obj);
+          if (currentIdx !== i) {
+            obj.moveTo(i);
+          }
+        }
+      }
+
+      canvas.requestRenderAll();
+      applyingRemoteRef.current = false;
+      console.log('[Board] Yjs -> Fabric 同步完成, 对象数:', canvas.getObjects().length);
+    };
+
+    yObjects.observe(handleYjsChange);
+
+    const syncToYjs = () => {
+      if (applyingRemoteRef.current) return;
+      if (!yObjects) return;
+
+      const canvasObjects = canvas.getObjects();
+      const currentIds = new Set();
+
+      canvasObjects.forEach((obj, index) => {
+        const yjsId = ensureFabricId(obj);
+        currentIds.add(yjsId);
+
+        let yMap = null;
+        const arr = yObjects.toArray();
+        for (let i = 0; i < arr.length; i++) {
+          if (arr[i].get('__yjsId') === yjsId) {
+            yMap = arr[i];
+            break;
+          }
+        }
+
+        const data = fabricToYjs(obj);
+
+        if (!yMap) {
+          yMap = new Y.Map();
+          Object.entries(data).forEach(([k, v]) => yMap.set(k, v));
+          yObjects.push([yMap]);
+        } else {
+          const existing = yMap.toJSON();
+          Object.entries(data).forEach(([k, v]) => {
+            if (JSON.stringify(existing[k]) !== JSON.stringify(v)) {
+              yMap.set(k, v);
+            }
+          });
+          const currentIndex = arr.findIndex((m) => m.get('__yjsId') === yjsId);
+          if (currentIndex !== -1 && currentIndex !== index) {
+            const yMapToMove = yObjects.get(currentIndex);
+            yObjects.delete(currentIndex);
+            yObjects.insert(index, [yMapToMove]);
+          }
+        }
+      });
+
+      const arr = yObjects.toArray();
+      for (let i = arr.length - 1; i >= 0; i--) {
+        const yjsId = arr[i].get('__yjsId');
+        if (!currentIds.has(yjsId)) {
+          yObjects.delete(i);
+        }
+      }
+    };
+
+    let syncTimer = null;
+    const scheduleSync = () => {
+      if (syncTimer) clearTimeout(syncTimer);
+      syncTimer = setTimeout(() => {
+        syncToYjs();
+        setDirty(true);
+        syncTimer = null;
+      }, 50);
+    };
+
+    canvas.on('object:added', scheduleSync);
+    canvas.on('object:modified', scheduleSync);
+    canvas.on('object:removed', scheduleSync);
+    canvas.on('object:moving', scheduleSync);
+    canvas.on('path:created', (e) => {
+      ensureFabricId(e.path);
+      scheduleSync();
+    });
+
+    if (yObjects.length > 0) {
+      console.log('[Board] 强制初始渲染, yObjects.length:', yObjects.length);
+      handleYjsChange();
+    }
+
+    initializedRef.current = true;
+
+    return () => {
+      yObjects.unobserve(handleYjsChange);
+      canvas.off('object:added', scheduleSync);
+      canvas.off('object:modified', scheduleSync);
+      canvas.off('object:removed', scheduleSync);
+      canvas.off('object:moving', scheduleSync);
+      canvas.off('path:created', scheduleSync);
+      if (syncTimer) clearTimeout(syncTimer);
+    };
+  }, [yObjects, ydoc]);
+
+  // ========== 工具切换 ==========
   useEffect(() => {
     const canvas = fabricRef.current;
     if (!canvas) return;
@@ -572,6 +585,7 @@ function BoardPage() {
       drawing.startY = 0;
 
       if (drawing.tempObj) {
+        ensureFabricId(drawing.tempObj);
         drawing.tempObj = null;
       }
 
@@ -595,157 +609,11 @@ function BoardPage() {
     };
   }, [tool]);
 
-  /* ─────────────── 加载服务端数据到画布 ─────────────── */
+  // ========== 光标同步 ==========
   useEffect(() => {
-    const canvas = fabricRef.current;
-    if (!canvas) return;
-    if (loading) return;
-    if (!board) return;
+    if (!awareness || !containerRef.current) return;
 
-    const snapshotStr = board.content_data?.canvas;
-    if (snapshotStr) {
-      const parsed = safeParseJson(snapshotStr);
-      if (parsed) {
-        applyingRemoteRef.current = true;
-        canvas.loadFromJSON(parsed, () => {
-          canvas.renderAll();
-          applyingRemoteRef.current = false;
-          takeSnapshot();
-          // 初始化自动保存基准
-          lastAutoSnapshotRef.current = serializeCanvas(canvas);
-          lastAutoSaveTimeRef.current = Date.now();
-        });
-      } else {
-        takeSnapshot();
-      }
-    } else {
-      takeSnapshot();
-    }
-  }, [board, loading, takeSnapshot]);
-
-  /* ─────────────── 智能自动保存：有变更且间隔≥30秒才保存 ─────────────── */
-  useEffect(() => {
-    if (!id || !board || loading) return;
-
-    const timer = setInterval(() => {
-      const canvas = fabricRef.current;
-      if (!canvas) return;
-
-      const now = Date.now();
-      const snapshotStr = serializeCanvas(canvas);
-
-      // 1. 检查是否有变更（与上次自动保存的快照对比）
-      const hasChanged = snapshotStr !== lastAutoSnapshotRef.current;
-
-      // 2. 检查是否达到最小间隔（30秒）
-      const timeElapsed = now - lastAutoSaveTimeRef.current >= 30000;
-
-      // 只有同时满足：有变更 + 间隔≥30秒，才保存
-      if (hasChanged && timeElapsed) {
-        createBoardVersion(id, {
-          content_snapshot: {
-            canvas: snapshotStr,
-            title: title || '未命名白板',
-            type: 'auto_checkpoint',
-            created_by: user?.user_id,
-          },
-        })
-          .then(() => {
-            // 更新基准
-            lastAutoSnapshotRef.current = snapshotStr;
-            lastAutoSaveTimeRef.current = now;
-            fetchVersions();
-          })
-          .catch(() => {});
-      }
-    }, 5000); // 每5秒检查一次，而不是30秒，这样更灵敏
-
-    return () => clearInterval(timer);
-  }, [id, board, loading, title, user?.user_id, fetchVersions]);
-
-  /* ─────────────── Socket 连接 & 事件监听 ─────────────── */
-  useEffect(() => {
-    connect();
-
-    const isConnected =
-      socketStatus === SocketStatus.CONNECTED || socketStatus === SocketStatus.RECOVERED;
-    if (isConnected && !joinedRef.current) {
-      joinRoom(id);
-      joinedRef.current = true;
-    }
-
-    const handleSync = ({ canvas, userId, itemId }) => {
-      if (itemId !== id) return;
-      if (!canvas) return;
-      applySnapshot(canvas, { emitSync: false, save: false });
-      if (userId) {
-        setRemoteCursors((prev) => {
-          const next = { ...prev };
-          if (!next[userId]) return prev;
-          return next;
-        });
-      }
-    };
-
-    const handleCursor = ({ itemId, userId, x, y }) => {
-      if (itemId !== id) return;
-      if (!userId) return;
-      if (user?.user_id && userId === user.user_id) return;
-      setRemoteCursors((prev) => {
-        const color = hashColor(String(userId));
-        return {
-          ...prev,
-          [userId]: { x, y, color, updatedAt: Date.now() },
-        };
-      });
-    };
-
-    const handleUserLeft = ({ userId }) => {
-      if (!userId) return;
-      setRemoteCursors((prev) => {
-        if (!prev[userId]) return prev;
-        const next = { ...prev };
-        delete next[userId];
-        return next;
-      });
-    };
-
-    const handleVersionRestored = ({ itemId: restoredItemId }) => {
-      if (restoredItemId !== id) return;
-      Toast.info('白板版本已被恢复，正在同步最新内容...');
-      getBoard(id)
-        .then((data) => {
-          setBoard(data);
-          setTitle(data.title || '');
-          // 恢复后重置自动保存基准
-          lastAutoSnapshotRef.current = null;
-          lastAutoSaveTimeRef.current = 0;
-        })
-        .catch(() => {});
-    };
-
-    on(SOCKET_EVENTS.BOARD_SYNC, handleSync);
-    on(SOCKET_EVENTS.BOARD_CURSOR, handleCursor);
-    on(SOCKET_EVENTS.USER_LEFT, handleUserLeft);
-    on(SOCKET_EVENTS.BOARD_VERSION_RESTORED, handleVersionRestored);
-
-    return () => {
-      off(SOCKET_EVENTS.BOARD_SYNC, handleSync);
-      off(SOCKET_EVENTS.BOARD_CURSOR, handleCursor);
-      off(SOCKET_EVENTS.USER_LEFT, handleUserLeft);
-      off(SOCKET_EVENTS.BOARD_VERSION_RESTORED, handleVersionRestored);
-      if (joinedRef.current) {
-        leaveRoom(id);
-        joinedRef.current = false;
-      }
-    };
-  }, [applySnapshot, connect, id, joinRoom, leaveRoom, off, on, socketStatus, user?.user_id]);
-
-  /* ─────────────── 鼠标光标实时同步 ─────────────── */
-  useEffect(() => {
     const el = containerRef.current;
-    if (!el) return;
-
     const onMove = (e) => {
       const now = Date.now();
       if (now - lastCursorSentAtRef.current < 50) return;
@@ -753,15 +621,38 @@ function BoardPage() {
       const rect = el.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      emit(SOCKET_EVENTS.BOARD_CURSOR, { itemId: id, x, y });
+      awareness.setLocalStateField('cursor', { x, y });
     };
     el.addEventListener('mousemove', onMove);
+
+    const handleAwarenessChange = () => {
+      const states = Array.from(awareness.getStates().entries());
+      const cursors = {};
+      states.forEach(([clientId, state]) => {
+        if (clientId === awareness.clientID) return;
+        if (!state?.cursor) return;
+        const color = state.user?.color || hashColor(String(clientId));
+        cursors[clientId] = {
+          x: state.cursor.x,
+          y: state.cursor.y,
+          color,
+          name: state.user?.name || String(clientId).slice(0, 6),
+          updatedAt: Date.now(),
+        };
+      });
+      setRemoteCursors(cursors);
+    };
+
+    awareness.on('change', handleAwarenessChange);
+    handleAwarenessChange();
+
     return () => {
       el.removeEventListener('mousemove', onMove);
+      awareness.off('change', handleAwarenessChange);
     };
-  }, [emit, id]);
+  }, [awareness]);
 
-  /* ─────────────── 清理过期远程光标 ─────────────── */
+  // ========== 清理过期光标 ==========
   useEffect(() => {
     const timer = setInterval(() => {
       setRemoteCursors((prev) => {
@@ -776,12 +667,197 @@ function BoardPage() {
     return () => clearInterval(timer);
   }, []);
 
-  /* ─────────────── 渲染 ─────────────── */
+  // ========== 操作函数 ==========
+  const saveNow = useCallback(() => {
+    if (!ydoc) return;
+    const snapshotStr = encodeYjsState(ydoc);
+    updateBoard(id, { title, content_data: { canvas: snapshotStr } })
+      .then(() => {
+        setDirty(false);
+        Toast.success('已保存');
+      })
+      .catch((e) => Toast.error(e.message || '保存失败'));
+  }, [id, title, ydoc]);
+
+  const exportPng = useCallback(() => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 2 });
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `${title || 'whiteboard'}.png`;
+    a.click();
+  }, [title]);
+
+  const deleteSelected = useCallback(() => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    const active = canvas.getActiveObjects();
+    if (!active.length) return;
+    active.forEach((obj) => canvas.remove(obj));
+    canvas.discardActiveObject();
+    canvas.requestRenderAll();
+  }, []);
+
+  const undoManagerRef = useRef(null);
+
+  useEffect(() => {
+    if (!yObjects) return;
+    const um = new Y.UndoManager(yObjects);
+    undoManagerRef.current = um;
+    return () => um.destroy();
+  }, [yObjects]);
+
+  const undo = useCallback(() => {
+    undoManagerRef.current?.undo();
+  }, []);
+
+  const redo = useCallback(() => {
+    undoManagerRef.current?.redo();
+  }, []);
+
+  const previewBackupRef = useRef(null);
+
+  const handlePreviewVersion = useCallback(
+    (version) => {
+      if (!ydoc) return;
+      const snapshot = version.content_snapshot;
+      if (!snapshot?.canvas) {
+        Toast.error('该版本没有可预览的内容');
+        return;
+      }
+      if (!previewingVersion) {
+        previewBackupRef.current = encodeYjsState(ydoc);
+      }
+      setPreviewingVersion(version);
+      applyingRemoteRef.current = true;
+      applyPersistedYjsState(ydoc, snapshot.canvas);
+      applyingRemoteRef.current = false;
+    },
+    [previewingVersion, ydoc]
+  );
+
+  const handleExitPreview = useCallback(() => {
+    if (!ydoc) return;
+    setPreviewingVersion(null);
+    const backup = previewBackupRef.current;
+    if (backup) {
+      applyingRemoteRef.current = true;
+      applyPersistedYjsState(ydoc, backup);
+      applyingRemoteRef.current = false;
+      previewBackupRef.current = null;
+    }
+  }, [ydoc]);
+
+  const handleRestoreVersion = useCallback(
+    (versionId) => {
+      if (board?.owner_id !== user?.user_id) {
+        Modal.warning({ title: '权限不足', content: '仅白板所有者可恢复版本' });
+        return;
+      }
+      const version = versions.find((v) => v.version_id === versionId);
+      const idx = versions.findIndex((v) => v.version_id === versionId);
+      const num = versions.length - idx;
+      const vLabel = version?.content_snapshot?.label || `版本 #${num}`;
+      Modal.confirm({
+        title: '确认恢复版本',
+        content: `恢复后白板内容将回滚到 ${vLabel}，当前内容将被覆盖。确定继续？`,
+        okText: '恢复',
+        okButtonProps: { danger: true },
+        cancelText: '取消',
+        onOk: async () => {
+          try {
+            await restoreBoardVersion(id, versionId);
+            Toast.success('版本恢复成功');
+            const data = await getBoard(id);
+            setBoard(data);
+            setTitle(data.title || '');
+            setPreviewingVersion(null);
+            previewBackupRef.current = null;
+            fetchVersions();
+          } catch (e) {
+            Toast.error(e.message || '恢复失败');
+          }
+        },
+      });
+    },
+    [board?.owner_id, user?.user_id, id, versions, fetchVersions]
+  );
+
+  const handleManualSave = useCallback(() => {
+    if (!ydoc) return;
+    let label = '';
+
+    Modal.confirm({
+      title: '保存版本快照',
+      content: (
+        <Input
+          placeholder="版本备注（可选）"
+          id="manual-version-label"
+          maxLength={50}
+          style={{ marginTop: 8 }}
+          onPressEnter={() => {
+            const btn = document.querySelector('.ant-modal-confirm-btns .ant-btn-primary');
+            if (btn) btn.click();
+          }}
+        />
+      ),
+      okText: '保存',
+      cancelText: '取消',
+      onOk: async () => {
+        label = document.getElementById('manual-version-label')?.value?.trim() || '手动保存';
+        setSavingManual(true);
+        try {
+          const snapshotStr = encodeYjsState(ydoc);
+          await createBoardVersion(id, {
+            content_snapshot: {
+              canvas: snapshotStr,
+              title: title || '未命名白板',
+              type: 'manual_checkpoint',
+              created_by: user?.user_id,
+              label,
+            },
+          });
+          Toast.success(`版本"${label}"已保存`);
+          fetchVersions();
+          setDirty(false);
+        } catch (e) {
+          Toast.error(e.message || '保存失败');
+        } finally {
+          setSavingManual(false);
+        }
+      },
+    });
+  }, [id, title, user?.user_id, ydoc, fetchVersions]);
+
+  useEffect(() => {
+    if (!id || !board || !ydoc) return;
+
+    const timer = setInterval(() => {
+      const snapshotStr = encodeYjsState(ydoc);
+      const currentSaved = board.content_data?.canvas;
+      if (snapshotStr !== currentSaved) {
+        createBoardVersion(id, {
+          content_snapshot: {
+            canvas: snapshotStr,
+            title: title || '未命名白板',
+            type: 'auto_checkpoint',
+            created_by: user?.user_id,
+          },
+        })
+          .then(() => fetchVersions())
+          .catch(() => {});
+      }
+    }, 30000);
+
+    return () => clearInterval(timer);
+  }, [id, board, ydoc, title, user?.user_id, fetchVersions]);
+
+  // ========== 渲染 ==========
   return (
     <Layout style={{ minHeight: '100vh', background: '#f5f5f5' }}>
       <Navbar />
       <Content style={{ padding: 16, display: 'flex', gap: 16 }}>
-        {/* 左侧主区域 */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <Card
             title={
@@ -794,6 +870,9 @@ function BoardPage() {
                     预览中
                   </Tag>
                 )}
+                {onlineUsers.length > 0 && (
+                  <Tag color="blue">{onlineUsers.length} 人在线</Tag>
+                )}
               </Space>
             }
             extra={
@@ -804,15 +883,8 @@ function BoardPage() {
                 >
                   版本历史
                 </Button>
-                <Button onClick={undo} disabled={historyRef.current.index <= 0}>
-                  撤销
-                </Button>
-                <Button
-                  onClick={redo}
-                  disabled={historyRef.current.index >= historyRef.current.stack.length - 1}
-                >
-                  重做
-                </Button>
+                <Button onClick={undo}>撤销</Button>
+                <Button onClick={redo}>重做</Button>
                 <Button danger onClick={deleteSelected}>
                   删除
                 </Button>
@@ -820,12 +892,12 @@ function BoardPage() {
                 <Button type="primary" onClick={saveNow} disabled={!dirty}>
                   保存
                 </Button>
-                <Button 
-                    type="default" 
-                    icon={<ArrowLeftOutlined />} 
-                    onClick={() => navigate('/')}
+                <Button
+                  type="default"
+                  icon={<ArrowLeftOutlined />}
+                  onClick={() => navigate('/')}
                 >
-                    回到主界面
+                  回到主界面
                 </Button>
               </Space>
             }
@@ -885,7 +957,6 @@ function BoardPage() {
                 </Button>
               </Space>
 
-              {/* 预览提示条 */}
               {previewingVersion && (
                 <div
                   style={{
@@ -957,7 +1028,7 @@ function BoardPage() {
                         borderRadius: 6,
                       }}
                     >
-                      {String(uid).slice(0, 6)}
+                      {cur.name?.slice(0, 6) || String(uid).slice(0, 6)}
                     </span>
                   </div>
                 ))}
@@ -981,7 +1052,6 @@ function BoardPage() {
           </Card>
         </div>
 
-        {/* 右侧版本历史侧边栏 */}
         {sidebarOpen && (
           <Card
             title={
@@ -1088,9 +1158,7 @@ function BoardPage() {
                               {formatTime(item.created_at)}
                             </Typography.Text>
                             {label && label !== '手动保存' && (
-                              <Typography.Text
-                                style={{ fontSize: 12, color: '#1890ff' }}
-                              >
+                              <Typography.Text style={{ fontSize: 12, color: '#1890ff' }}>
                                 {label}
                               </Typography.Text>
                             )}

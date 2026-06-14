@@ -106,6 +106,42 @@ function handlers(io, socket, { joinRoom, leaveRoom, broadcastToRoom }) {
     broadcastToRoom(itemId, 'doc:sidebar-changed', { itemId }, socket.id);
   });
 
+  // ==================== 白板 Yjs 增量同步（新增）====================
+  socket.on('board:yjs-update', async ({ itemId, update }) => {
+    if (!itemId || !update) return;
+    if (!(await canAccessBoard(itemId))) return;
+    // 需要 editor 权限才能修改白板
+    try {
+      await boardService.assertBoardWritable({ userId: socket.data.userId, itemId });
+    } catch (err) {
+      socket.emit('board:error', {
+        itemId,
+        code: err.code || 40301,
+        message: err.message || '无权限编辑该白板',
+      });
+      return;
+    }
+    broadcastToRoom(
+      itemId,
+      'board:yjs-update',
+      { itemId, update, userId: socket.data.userId },
+      socket.id
+    );
+  });
+
+  // 白板协作光标 / Awareness（新增）
+  socket.on('board:yjs-cursor', async ({ itemId, update }) => {
+    if (!itemId || !update) return;
+    if (!(await canAccessBoard(itemId))) return;
+    broadcastToRoom(
+      itemId,
+      'board:yjs-cursor',
+      { itemId, update, userId: socket.data.userId },
+      socket.id
+    );
+  });
+
+  // ==================== 旧白板事件（保留兼容，可选移除）====================
   const inRoom = (itemId) => socket.rooms.has(`item:${itemId}`);
 
   socket.on('board:draw', ({ itemId, ...payload }) => {
