@@ -237,7 +237,7 @@ function BoardPage() {
   }, [board]);
 
   useEffect(() => {
-    if (!ydoc || !boardRef.current?.content_data?.canvas) return;
+    if (!ydoc || !board?.content_data?.canvas) return;
     if (migratedRef.current) return;
 
     const yObjects = ydoc.getArray('objects');
@@ -246,7 +246,7 @@ function BoardPage() {
       return;
     }
 
-    const snapshotStr = boardRef.current.content_data.canvas;
+    const snapshotStr = board.content_data.canvas;
     console.log('[Board] 尝试迁移数据');
 
     try {
@@ -278,7 +278,7 @@ function BoardPage() {
     } catch (e) {
       console.error('[Board] 迁移失败:', e);
     }
-  }, [ydoc]);
+  }, [ydoc, board]); // ✅ 关键：加上 board
 
   // ========== Yjs <-> Fabric 双向绑定 ==========
   useEffect(() => {
@@ -292,7 +292,7 @@ function BoardPage() {
 
     const handleYjsChange = async (events, transaction) => {
       if (applyingRemoteRef.current) return;
-      if (transaction && transaction.local) return;
+      // if (transaction && transaction.local) return;
 
       applyingRemoteRef.current = true;
 
