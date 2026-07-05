@@ -210,6 +210,10 @@ async function restoreBoardVersion(userId, itemId, versionId) {
 }
 
 module.exports = {
+  getBoardRole,
+  assertBoardReadable,
+  assertBoardWritable,
+  assertBoardOwner,
   listBoards,
   createBoard,
   getBoard,

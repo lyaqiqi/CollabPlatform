@@ -19,6 +19,14 @@ export const SOCKET_EVENTS = {
   USER_JOINED: 'user:joined',
   USER_LEFT: 'user:left',
 
+  // 白板协作（Yjs CRDT，与文档同构）
+  BOARD_YJS_UPDATE: 'board:yjs-update',   // Yjs 增量更新（base64）
+  BOARD_YJS_CURSOR: 'board:yjs-cursor',   // Awareness / 光标同步
+  BOARD_YJS_SYNC_REQUEST: 'board:yjs-sync-request', // 加入/重连时请求房间内其他人补发全量状态
+  BOARD_YJS_SYNC_STATE: 'board:yjs-sync-state',     // 携带全量状态的握手补发（写权限校验，失败静默不报错）
+  BOARD_ERROR: 'board:error',             // 服务端拒绝操作（权限不足等）
+
+  // 旧版整块广播事件（已弃用，仅保留常量以兼容历史代码）
   BOARD_DRAW: 'board:draw',
   BOARD_SYNC: 'board:sync',
   BOARD_CURSOR: 'board:cursor',

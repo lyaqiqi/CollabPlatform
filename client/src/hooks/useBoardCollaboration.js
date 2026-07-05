@@ -5,13 +5,20 @@ import { colorFromUserId } from '../collab/userColor';
 import { useSocket } from '../socket/useSocket';
 import { SOCKET_EVENTS } from '../utils/constants';
 
+/**
+ * 为白板页创建 Y.Doc + Socket.io Yjs Provider，并加入协作房间。
+ * 与 useDocCollaboration 同构，区别仅在于：
+ *  - 使用白板专属的 Yjs 事件名（board:yjs-update / board:yjs-cursor）
+ *  - Y.Doc 的共享数据结构是 Array('objects') + Map('meta')，由 BoardPage 与 Fabric 画布双向绑定
+ *
+ * @param {string|undefined} itemId
+ * @param {{ user_id: string, username: string }|null} user
+ */
 export function useBoardCollaboration(itemId, user) {
   const { connect, joinRoom, leaveRoom, emit, on, off, connected, status } = useSocket();
   const [collab, setCollab] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
-  const providerRef = useRef(null);
   const ydocRef = useRef(null);
-  const joinedRef = useRef(false);
 
   const getYdoc = useCallback(() => ydocRef.current, []);
 
@@ -21,11 +28,7 @@ export function useBoardCollaboration(itemId, user) {
       return undefined;
     }
 
-    if (joinedRef.current) return undefined;
-
     connect();
-    joinRoom(itemId);
-    joinedRef.current = true;
 
     const ydoc = new Y.Doc();
     ydocRef.current = ydoc;
@@ -42,10 +45,23 @@ export function useBoardCollaboration(itemId, user) {
       off,
       eventOperation: SOCKET_EVENTS.BOARD_YJS_UPDATE,
       eventCursor: SOCKET_EVENTS.BOARD_YJS_CURSOR,
+      eventSyncRequest: SOCKET_EVENTS.BOARD_YJS_SYNC_REQUEST,
+      eventSyncState: SOCKET_EVENTS.BOARD_YJS_SYNC_STATE,
     });
 
-    providerRef.current = provider;
+    // 断线重连后自动重新加入房间（否则 socket 虽已连接却不在房间内，收不到广播），
+    // 并触发一次全量同步握手，补齐离线期间双方错过的更新。
+    const handleConnect = () => {
+      joinRoom(itemId);
+      provider.requestSync();
+    };
 
+    on('connect', handleConnect);
+    joinRoom(itemId);
+    // 首次加入：向房间内已在线的成员请求全量状态（迟到者据此补齐已有内容）。
+    provider.requestSync();
+
+    // 实时在线用户：从 Awareness 状态派生，按 user.id 去重（同一用户多标签只算一人）。
     const syncOnlineUsers = () => {
       const states = provider.awareness.getStates();
       const byUser = new Map();
@@ -69,18 +85,16 @@ export function useBoardCollaboration(itemId, user) {
     setCollab({ ydoc, provider, color, yObjects, yMeta });
 
     return () => {
-      joinedRef.current = false;
+      off('connect', handleConnect);
       leaveRoom(itemId);
       provider.awareness.off('change', syncOnlineUsers);
       provider.destroy();
       ydoc.destroy();
       ydocRef.current = null;
-      providerRef.current = null;
       setCollab(null);
       setOnlineUsers([]);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itemId, user?.user_id]);
+  }, [itemId, user?.user_id, user?.username, connect, joinRoom, leaveRoom, emit, on, off]);
 
   return {
     ...collab,

@@ -104,6 +104,8 @@ function BoardPage() {
     connected,
     status: socketStatus,
     onlineUsers,
+    socketOn,
+    socketOff,
   } = useBoardCollaboration(id, user);
 
   const awareness = provider?.awareness;
@@ -122,6 +124,7 @@ function BoardPage() {
   const [tool, setTool] = useState(TOOLS.SELECT);
   const [title, setTitle] = useState('');
   const [dirty, setDirty] = useState(false);
+  const dirtyRef = useRef(false);
   const [remoteCursors, setRemoteCursors] = useState({});
   const [versions, setVersions] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -129,6 +132,7 @@ function BoardPage() {
   const [savingManual, setSavingManual] = useState(false);
 
   toolRef.current = tool;
+  dirtyRef.current = dirty;
 
   const localMapRef = useRef(new Map());
 
@@ -237,8 +241,14 @@ function BoardPage() {
   }, [board]);
 
   useEffect(() => {
-    if (!ydoc || !board?.content_data?.canvas) return;
+    if (!ydoc || !board) return;
     if (migratedRef.current) return;
+
+    // 空白板（无历史内容）：直接标记为已注水，允许后续本地编辑落库
+    if (!board.content_data?.canvas) {
+      migratedRef.current = true;
+      return;
+    }
 
     const yObjects = ydoc.getArray('objects');
     if (yObjects.length > 0) {
@@ -290,12 +300,8 @@ function BoardPage() {
 
     console.log('[Board] Yjs-Fabric 绑定开始, yObjects.length:', yObjects.length);
 
-    const handleYjsChange = async (events, transaction) => {
-      if (applyingRemoteRef.current) return;
-      // if (transaction && transaction.local) return;
-
-      applyingRemoteRef.current = true;
-
+    // 将 yObjects 全量对账渲染到 Fabric 画布（幂等：每次都以 yObjects 为准）。
+    const reconcileOnce = async () => {
       const yjsIds = new Set();
       const yjsArray = yObjects.toArray();
       yjsArray.forEach((yMap) => {
@@ -321,13 +327,14 @@ function BoardPage() {
 
         let obj = localMap.get(yjsId);
         if (!obj) {
+          // eslint-disable-next-line no-await-in-loop
           obj = await yjsToFabric(data);
           if (!obj) continue;
           localMap.set(yjsId, obj);
           canvas.add(obj);
           obj.moveTo(i);
         } else {
-          const { __yjsId: _, ...newProps } = data;
+          const { __yjsId: _ignored, ...newProps } = data;
           obj.set(newProps);
           obj.setCoords();
           const currentIdx = canvas.getObjects().indexOf(obj);
@@ -338,11 +345,42 @@ function BoardPage() {
       }
 
       canvas.requestRenderAll();
-      applyingRemoteRef.current = false;
-      console.log('[Board] Yjs -> Fabric 同步完成, 对象数:', canvas.getObjects().length);
     };
 
-    yObjects.observe(handleYjsChange);
+    // 可重入调度：对账是异步的，处理期间若又来新的远端更新，处理完再跑一次，
+    // 避免快速连续的笔画被 “正在处理中” 直接丢弃（这会导致内容不同步）。
+    let reconciling = false;
+    let needsRerun = false;
+    const handleYjsChange = (events, transaction) => {
+      // 本地画布编辑产生的事务：Fabric 已是最新，无需回灌（避免抖动、打断正在编辑的文本）。
+      // 远端更新（local=false）与持久化/迁移（origin==='persisted'）必须渲染。
+      if (transaction && transaction.local && transaction.origin !== 'persisted') return;
+      if (reconciling) {
+        needsRerun = true;
+        return;
+      }
+      reconciling = true;
+      applyingRemoteRef.current = true;
+      (async () => {
+        try {
+          do {
+            needsRerun = false;
+            // eslint-disable-next-line no-await-in-loop
+            await reconcileOnce();
+          } while (needsRerun);
+        } catch (err) {
+          console.error('[Board] Yjs -> Fabric 渲染出错:', err);
+        } finally {
+          reconciling = false;
+          applyingRemoteRef.current = false;
+        }
+      })();
+    };
+
+    // 关键：用 observeDeep 而非 observe。
+    // observe 只在数组“增删元素”时触发；对象被移动/缩放/改文字属于对内部 Y.Map 的深层修改，
+    // 只有 observeDeep 才会触发——否则新画的能出现、但移动/修改永远不会同步到对端。
+    yObjects.observeDeep(handleYjsChange);
 
     const syncToYjs = () => {
       if (applyingRemoteRef.current) return;
@@ -422,7 +460,7 @@ function BoardPage() {
     initializedRef.current = true;
 
     return () => {
-      yObjects.unobserve(handleYjsChange);
+      yObjects.unobserveDeep(handleYjsChange);
       canvas.off('object:added', scheduleSync);
       canvas.off('object:modified', scheduleSync);
       canvas.off('object:removed', scheduleSync);
@@ -585,8 +623,14 @@ function BoardPage() {
       drawing.startY = 0;
 
       if (drawing.tempObj) {
-        ensureFabricId(drawing.tempObj);
+        const finished = drawing.tempObj;
+        ensureFabricId(finished);
+        finished.setCoords();
         drawing.tempObj = null;
+        // 关键：矩形/圆/箭头的最终尺寸是靠拖拽时 .set() 改出来的，
+        // 这不会触发 object:modified，鼠标松开也没有其它同步事件，
+        // 结果对端只能收到按下瞬间的 1×1 图形。这里显式触发一次同步，补齐最终几何形状。
+        canvas.fire('object:modified', { target: finished });
       }
 
       if (toolRef.current !== TOOLS.SELECT && toolRef.current !== TOOLS.PENCIL) {
@@ -830,28 +874,89 @@ function BoardPage() {
     });
   }, [id, title, user?.user_id, ydoc, fetchVersions]);
 
+  // ========== 防抖自动持久化（与文档一致：只由“做出改动的一端”写库）==========
+  // 实时协作走 Socket.io，不经过 HTTP；此处仅负责把最新快照落库，
+  // 保证刷新/重新进入时能加载到最新内容，无需手动点“保存”。
+  //
+  // 关键（修复请求风暴 / 一端编辑另一端一直加载）：
+  //  1) 只有【本地】编辑才写库；远端更新(origin===provider)与持久化回灌(origin==='persisted')一律跳过，
+  //     否则两端都会写库、且每次应用远端更新又触发一次写库。
+  //  2) 上一次 PUT 未返回前不再发起新的 PUT（in-flight 去重），避免慢库下请求堆积把连接池打满。
+  const savingRef = useRef(false);
+  const pendingSaveRef = useRef(false);
+  const migratedFlagRef = migratedRef; // 复用迁移完成标记，未加载完不落库以免清空
+
   useEffect(() => {
-    if (!id || !board || !ydoc) return;
+    if (!ydoc || !board || !provider) return undefined;
 
-    const timer = setInterval(() => {
-      const snapshotStr = encodeYjsState(ydoc);
-      const currentSaved = board.content_data?.canvas;
-      if (snapshotStr !== currentSaved) {
-        createBoardVersion(id, {
-          content_snapshot: {
-            canvas: snapshotStr,
-            title: title || '未命名白板',
-            type: 'auto_checkpoint',
-            created_by: user?.user_id,
-          },
-        })
-          .then(() => fetchVersions())
-          .catch(() => {});
+    let saveTimer = null;
+
+    const doSave = () => {
+      if (previewBackupRef.current) return; // 预览历史版本期间不落库
+      if (!migratedFlagRef.current) return; // 初始内容尚未注水，避免用空文档覆盖
+      if (savingRef.current) {
+        pendingSaveRef.current = true; // 有写入在途，记一笔待写
+        return;
       }
-    }, 30000);
+      savingRef.current = true;
+      const snapshotStr = encodeYjsState(ydoc);
+      updateBoard(id, { content_data: { canvas: snapshotStr } })
+        .then(() => setDirty(false))
+        .catch(() => {})
+        .finally(() => {
+          savingRef.current = false;
+          if (pendingSaveRef.current) {
+            pendingSaveRef.current = false;
+            doSave();
+          }
+        });
+    };
 
-    return () => clearInterval(timer);
-  }, [id, board, ydoc, title, user?.user_id, fetchVersions]);
+    const scheduleSave = (update, origin) => {
+      if (origin === provider || origin === 'persisted') return; // 仅本地编辑触发
+      setDirty(true);
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(doSave, 2000);
+    };
+
+    ydoc.on('update', scheduleSave);
+    return () => {
+      ydoc.off('update', scheduleSave);
+      if (saveTimer) clearTimeout(saveTimer);
+      // 离开时若仍有未保存的本地改动，补一次保存（已迁移且非预览态）
+      if (dirtyRef.current && migratedFlagRef.current && !previewBackupRef.current) {
+        try {
+          updateBoard(id, { content_data: { canvas: encodeYjsState(ydoc) } }).catch(() => {});
+        } catch {
+          /* ydoc 可能已销毁，忽略 */
+        }
+      }
+    };
+  }, [id, ydoc, board, provider]);
+
+  // ========== 协作侧事件：版本恢复广播 / 服务端错误 ==========
+  useEffect(() => {
+    if (!id || !socketOn || !socketOff) return undefined;
+
+    const onVersionRestored = ({ itemId, restoredBy }) => {
+      if (itemId !== id) return;
+      if (restoredBy === user?.user_id) return; // 操作者自身已在 handleRestoreVersion 中处理
+      Toast.info('该白板已被恢复到历史版本，即将刷新…');
+      setTimeout(() => window.location.reload(), 1000);
+    };
+
+    const onBoardError = ({ message }) => {
+      Toast.error(message || '操作被拒绝，请检查您的权限');
+    };
+
+    socketOn(SOCKET_EVENTS.BOARD_VERSION_RESTORED, onVersionRestored);
+    socketOn(SOCKET_EVENTS.BOARD_ERROR, onBoardError);
+
+    return () => {
+      socketOff(SOCKET_EVENTS.BOARD_VERSION_RESTORED, onVersionRestored);
+      socketOff(SOCKET_EVENTS.BOARD_ERROR, onBoardError);
+    };
+  }, [id, socketOn, socketOff, user?.user_id]);
 
   // ========== 渲染 ==========
   return (
