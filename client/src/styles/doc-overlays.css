@@ -1,36 +1,38 @@
 /* ============================================================
-   CollabPlatform · 浮层：划词菜单 + 斜杠命令 + 评论卡片
+   CollabPlatform ? ?????????
+   ????????????????????????
+         ?????????????????
    ============================================================ */
 
 /* ============================================================
-   划词浮动工具栏 (SelectionBubbleMenu)
+   ???????SelectionBubbleMenu?
    ============================================================ */
 .selection-bubble {
   display: flex;
   align-items: center;
-  background: #fff;
-  border: 1px solid var(--doc-border);
-  border-radius: var(--doc-radius);
-  box-shadow: var(--doc-shadow-pop);
-  padding: 4px;
   gap: 2px;
+  background: var(--doc-paper);
+  border: 1px solid var(--doc-border);
+  border-radius: var(--doc-radius-sm);
+  box-shadow: var(--doc-shadow-pop);
+  padding: 4px 6px;
   user-select: none;
 }
 
 .selection-bubble__btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--doc-radius-sm);
+  width: 28px;
+  height: 28px;
   border: none;
   background: transparent;
-  cursor: pointer;
+  border-radius: var(--doc-radius-xs);
   color: var(--doc-text-2);
-  font-size: 15px;
+  font-size: 14px;
+  cursor: pointer;
   transition: background var(--doc-transition-fast), color var(--doc-transition-fast);
-  font-family: var(--doc-font);
+  flex-shrink: 0;
 }
 
 .selection-bubble__btn:hover {
@@ -40,64 +42,49 @@
 
 .selection-bubble__btn--active {
   background: var(--doc-active);
-  color: var(--doc-brand);
+  color: var(--doc-active-text);
 }
 
-.selection-bubble__sep {
-  width: 1px;
-  height: 18px;
-  background: var(--doc-border);
-  margin: 0 2px;
-  flex-shrink: 0;
-}
-
-/* 高亮按钮用黄色底色强调 */
-.selection-bubble__btn--highlight {
-  position: relative;
-}
-
-.selection-bubble__btn--highlight::after {
-  content: '';
-  position: absolute;
-  bottom: 4px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 14px;
-  height: 3px;
-  background: #ffd33d;
-  border-radius: 2px;
-}
-
-/* 评论按钮用品牌色 */
+/* ???? ? ??????? */
 .selection-bubble__btn--comment {
-  color: var(--doc-brand);
-  font-weight: 600;
-  font-size: 13px;
   width: auto;
   padding: 0 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--doc-brand);
+  gap: 4px;
 }
 
 .selection-bubble__btn--comment:hover {
-  background: var(--doc-active);
-  color: var(--doc-brand-hover);
+  background: var(--doc-brand-light);
+  color: var(--doc-brand);
+}
+
+/* ??? */
+.selection-bubble__sep {
+  width: 1px;
+  height: 16px;
+  background: var(--doc-border);
+  margin: 0 3px;
+  flex-shrink: 0;
 }
 
 /* ============================================================
-   斜杠命令菜单 (SlashCommandMenu)
+   ???????SlashCommandMenu?
    ============================================================ */
 .slash-menu {
+  position: fixed;
+  z-index: 1000;
   background: var(--doc-paper);
   border: 1px solid var(--doc-border);
-  border-radius: var(--doc-radius-lg);
+  border-radius: var(--doc-radius);
   box-shadow: var(--doc-shadow-pop);
   width: 260px;
   max-height: 380px;
   overflow-y: auto;
+  padding: 6px 4px;
   scrollbar-width: thin;
   scrollbar-color: var(--doc-border) transparent;
-  z-index: 1200;
-  position: fixed;
-  padding: 6px 0 6px;
 }
 
 .slash-menu::-webkit-scrollbar {
@@ -110,22 +97,23 @@
 }
 
 .slash-menu__group-label {
+  padding: 4px 10px 2px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--doc-text-3);
+  color: var(--doc-text-4);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  padding: 8px 14px 4px;
+  user-select: none;
 }
 
 .slash-menu__item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 14px;
+  padding: 6px 10px;
+  border-radius: var(--doc-radius-sm);
   cursor: pointer;
   transition: background var(--doc-transition-fast);
-  border-radius: 0;
 }
 
 .slash-menu__item:hover,
@@ -133,27 +121,25 @@
   background: var(--doc-hover);
 }
 
-.slash-menu__item--active {
-  background: var(--doc-active);
-}
-
 .slash-menu__icon {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--doc-radius-sm);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--doc-radius-xs);
+  background: var(--doc-bg);
   border: 1px solid var(--doc-border-light);
-  background: var(--doc-hover);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--doc-text-2);
   flex-shrink: 0;
+  font-family: var(--doc-font-mono);
 }
 
 .slash-menu__text {
-  flex: 1;
   min-width: 0;
+  flex: 1;
 }
 
 .slash-menu__name {
@@ -166,31 +152,98 @@
 .slash-menu__desc {
   font-size: 11px;
   color: var(--doc-text-3);
-  margin-top: 1px;
   line-height: 1.3;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .slash-menu__divider {
   height: 1px;
   background: var(--doc-border-light);
-  margin: 4px 14px;
+  margin: 4px 10px;
 }
 
 .slash-menu__empty {
-  padding: 16px 14px;
-  text-align: center;
+  padding: 16px 10px;
   font-size: 13px;
   color: var(--doc-text-3);
+  text-align: center;
 }
 
 /* ============================================================
-   右侧评论面板内部卡片
+   ???????TableBubbleMenu?
+   ============================================================ */
+.table-bubble {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--doc-paper);
+  border: 1px solid var(--doc-border);
+  border-radius: var(--doc-radius-sm);
+  box-shadow: var(--doc-shadow-pop);
+  padding: 4px 6px;
+  user-select: none;
+}
+
+.table-bubble__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--doc-text-4);
+  padding: 0 4px;
+  user-select: none;
+  letter-spacing: 0.04em;
+}
+
+.table-bubble__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 26px;
+  padding: 0 7px;
+  border: none;
+  background: transparent;
+  border-radius: var(--doc-radius-xs);
+  font-size: 12px;
+  color: var(--doc-text-2);
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: var(--doc-font);
+  transition: background var(--doc-transition-fast), color var(--doc-transition-fast);
+}
+
+.table-bubble__btn:hover {
+  background: var(--doc-hover);
+  color: var(--doc-text);
+}
+
+.table-bubble__btn--danger:hover {
+  background: #fff1f0;
+  color: var(--doc-danger);
+}
+
+.table-bubble__sep {
+  width: 1px;
+  height: 16px;
+  background: var(--doc-border);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   ?????DocRightPanel > CommentsPanel?
    ============================================================ */
 .comment-card {
   padding: 12px 16px;
   border-bottom: 1px solid var(--doc-border-light);
-  cursor: pointer;
   transition: background var(--doc-transition-fast);
+  cursor: default;
+}
+
+.comment-card:last-child {
+  border-bottom: none;
 }
 
 .comment-card:hover {
@@ -198,15 +251,17 @@
 }
 
 .comment-card--active {
-  background: var(--doc-active);
-  border-left: 3px solid var(--doc-brand);
+  background: rgba(255, 193, 7, 0.06);
+  border-left: 3px solid var(--doc-warning);
+  padding-left: 13px;
 }
 
+/* ???? */
 .comment-card__quote {
   font-size: 12px;
   color: var(--doc-text-3);
-  background: var(--doc-hover);
-  border-left: 2px solid var(--doc-border);
+  background: var(--doc-bg);
+  border-left: 3px solid var(--doc-border);
   padding: 4px 8px;
   border-radius: 0 var(--doc-radius-xs) var(--doc-radius-xs) 0;
   margin-bottom: 8px;
@@ -219,7 +274,7 @@
 .comment-card__meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 6px;
 }
 
@@ -231,75 +286,96 @@
 
 .comment-card__time {
   font-size: 11px;
-  color: var(--doc-text-3);
+  color: var(--doc-text-4);
 }
 
 .comment-card__content {
   font-size: 13px;
   color: var(--doc-text-2);
-  line-height: 1.6;
+  line-height: 1.65;
+  word-break: break-word;
 }
 
 .comment-card__actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   margin-top: 8px;
+  flex-wrap: wrap;
 }
 
-/* 创建评论区域 */
+/* ============================================================
+   ??????CommentsPanel ???
+   ============================================================ */
 .comment-compose {
   padding: 12px 16px;
-  border-top: 1px solid var(--doc-border-light);
-  background: #fafbfc;
+  border-bottom: 1px solid var(--doc-border-light);
+  flex-shrink: 0;
+  background: var(--doc-paper);
 }
 
 .comment-compose__quote {
   font-size: 12px;
-  color: var(--doc-brand);
-  background: var(--doc-active);
+  color: var(--doc-text-2);
+  background: var(--doc-bg);
+  border-left: 3px solid var(--doc-brand);
   padding: 4px 8px;
-  border-radius: var(--doc-radius-xs);
-  margin-bottom: 8px;
+  border-radius: 0 var(--doc-radius-xs) var(--doc-radius-xs) 0;
+  margin-bottom: 10px;
+  line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-style: italic;
 }
 
 .comment-compose__placeholder {
-  font-size: 13px;
-  color: var(--doc-text-3);
-  padding: 16px;
+  font-size: 12px;
+  color: var(--doc-text-4);
   text-align: center;
+  padding: 12px 0;
+  line-height: 1.6;
 }
 
-/* 版本列表 */
+/* ============================================================
+   ???????VersionsPanel?
+   ============================================================ */
 .version-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
-  padding: 12px 16px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--doc-border-light);
-  cursor: default;
+  transition: background var(--doc-transition-fast);
 }
 
-.version-item__badge {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
+.version-item:last-child {
+  border-bottom: none;
+}
+
+.version-item:hover {
   background: var(--doc-hover);
-  border: 1px solid var(--doc-border);
+}
+
+/* ?????? */
+.version-item__badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--doc-brand-light);
+  color: var(--doc-brand);
+  font-size: 11px;
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--doc-text-2);
   flex-shrink: 0;
 }
 
 .version-item__info {
-  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -307,66 +383,111 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--doc-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .version-item__time {
   font-size: 11px;
-  color: var(--doc-text-3);
-  margin-top: 2px;
+  color: var(--doc-text-4);
 }
 
 /* ============================================================
-   �������ݲ˵� (TableBubbleMenu)
+   AI 助手 · 气泡菜单按钮
    ============================================================ */
-.table-bubble {
+.selection-bubble__btn--ai {
+  width: auto;
+  padding: 0 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--doc-brand);
+  gap: 2px;
+}
+
+.selection-bubble__btn--ai:hover {
+  background: var(--doc-brand-light);
+  color: var(--doc-brand);
+}
+
+/* ============================================================
+   AI 助手 · 内联结果浮层
+   ============================================================ */
+.ai-inline-result {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 1200;
+  width: min(680px, calc(100vw - 48px));
+  background: var(--doc-paper);
+  border: 1px solid var(--doc-border);
+  border-radius: var(--doc-radius);
+  box-shadow: var(--doc-shadow-pop);
+  overflow: hidden;
+  animation: ai-pop-in 0.18s var(--doc-ease);
+}
+
+@keyframes ai-pop-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.ai-inline-result__header {
   display: flex;
   align-items: center;
-  gap: 2px;
-  background: #fff;
-  border: 1px solid var(--doc-border);
-  border-radius: var(--doc-radius-sm);
-  box-shadow: var(--doc-shadow-pop);
-  padding: 4px 6px;
-  user-select: none;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--doc-border-light);
+  background: var(--doc-bg);
 }
 
-.table-bubble__label {
-  font-size: 11px;
-  color: var(--doc-text-3);
+.ai-inline-result__title {
+  font-size: 13px;
   font-weight: 600;
-  padding: 0 4px;
-}
-
-.table-bubble__sep {
-  width: 1px;
-  height: 16px;
-  background: var(--doc-border);
-  margin: 0 4px;
-  flex-shrink: 0;
-}
-
-.table-bubble__btn {
+  color: var(--doc-brand);
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  height: 26px;
-  padding: 0 7px;
-  border: none;
-  border-radius: var(--doc-radius-xs);
-  background: transparent;
-  color: var(--doc-text-2);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-  white-space: nowrap;
 }
 
-.table-bubble__btn:hover {
+.ai-inline-result__close {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--doc-text-3);
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: var(--doc-radius-xs);
+}
+
+.ai-inline-result__close:hover {
   background: var(--doc-hover);
   color: var(--doc-text);
 }
 
-.table-bubble__btn--danger:hover {
-  background: #fff1f0;
-  color: #f54a45;
+.ai-inline-result__body {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 14px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--doc-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-inline-result__placeholder {
+  color: var(--doc-text-3);
+}
+
+.ai-inline-result__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--doc-border-light);
+  flex-wrap: wrap;
 }

@@ -46,6 +46,7 @@ function toDocDto(item) {
     title: item.title,
     owner_id: item.owner_id,
     is_public: item.is_public,
+    folder_id: item.folder_id ?? null,
     content_data: item.content_data,
     created_at: item.created_at,
     updated_at: item.updated_at,
@@ -243,6 +244,29 @@ async function updateDoc(userId, itemId, { title, content_data }) {
 async function deleteDoc(userId, itemId) {
   await assertDocumentAccess(itemId, userId, 'owner');
   await prisma.collaborativeItem.delete({ where: { item_id: itemId } });
+}
+
+async function moveDocToFolder(userId, itemId, { folder_id }) {
+  await assertDocumentAccess(itemId, userId, 'editor');
+
+  const nextFolderId = folder_id || null;
+  if (nextFolderId) {
+    // 只能放进自己拥有的文件夹
+    const folder = await prisma.folder.findUnique({ where: { folder_id: nextFolderId } });
+    if (!folder) {
+      throw new AppError(404, AppError.CODES.NOT_FOUND, 'Folder not found');
+    }
+    if (folder.owner_id !== userId) {
+      throw new AppError(403, AppError.CODES.FORBIDDEN, 'No access to this folder');
+    }
+  }
+
+  const updated = await prisma.collaborativeItem.update({
+    where: { item_id: itemId },
+    data: { folder_id: nextFolderId },
+  });
+
+  return toDocDto(updated);
 }
 
 async function listDocComments(userId, itemId) {
@@ -521,6 +545,7 @@ module.exports = {
   getDocSidebar,
   updateDoc,
   deleteDoc,
+  moveDocToFolder,
   listDocComments,
   createDocComment,
   createCommentReply,
