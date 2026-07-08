@@ -58,7 +58,6 @@ CollabPlatform/
 │       │   ├── Toast.js            # 全局消息提示（antd message）
 │       │   ├── ConfirmDialog.jsx   # 确认弹窗（antd Modal.confirm）
 │       │   ├── DocEditor.jsx       # 【C】TipTap 富文本编辑器（协作 + 评论锚点 + 撤销）
-│       │   ├── DocCollabSidebar.jsx# 【C】协作侧边栏（评论/版本/成员）
 │       │   ├── doc-editor/         # 【C】编辑器浮层
 │       │   │   ├── SelectionBubbleMenu.jsx  # 选区气泡工具栏（含 AI 入口）
 │       │   │   ├── SlashCommandMenu.jsx     # 斜杠 “/” 命令菜单
