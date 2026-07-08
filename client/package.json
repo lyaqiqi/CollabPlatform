@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test src/collab/__tests__/userColor.test.js src/collab/__tests__/yjsUtils.test.js",
+    "test:unit": "node --test src/collab/__tests__/userColor.test.js",
+    "test:core": "node --test src/collab/__tests__/yjsUtils.test.js"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.5",
@@ -49,6 +52,7 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.3.5"
+    "vite": "^5.3.5",
+    "vitest": "^4.1.10"
   }
 }

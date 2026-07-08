@@ -1,13 +1,17 @@
 {
   "name": "collab-platform-server",
   "version": "1.0.0",
-  "description": "CollabPlatform 后端服务",
+  "description": "CollabPlatform 鍚庣鏈嶅姟",
   "main": "src/index.js",
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:api": "vitest run tests/api",
+    "test:core": "vitest run tests/core"
   },
   "dependencies": {
     "@prisma/client": "^5.15.0",
@@ -23,7 +27,8 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.4",
-    "prisma": "^5.15.0"
+    "prisma": "^5.15.0",
+    "supertest": "^7.2.2",
+    "vitest": "^4.1.10"
   }
 }
-
